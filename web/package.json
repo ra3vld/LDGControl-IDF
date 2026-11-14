@@ -1,0 +1,1 @@
+{"name":"ldgcontrol-idf-web","private":true,"type":"module","version":"0.1.0","devDependencies":{"typescript":"5.9.3","terser":"5.19.2"},"scripts":{"check":"tsc --noEmit","build":"tsc"}}

@@ -1,0 +1,26 @@
+LDGControl-IDF
+Copyright (c) 2026 Dmitry E (RA3VLD) and contributors.
+GPL-3.0-or-later.
+
+Derived policies and compatibility definitions from Remote-LDGControl,
+commit 0d242cc, originally by Ben Kuhn and contributors, with subsequent
+work by Dmitry E and contributors. Original copyright notices are retained.
+ESP-IDF, LVGL and managed components retain their respective licenses.
+
+Original project: https://github.com/ben-kuhn/Remote-LDGControl
+Protocol reverse engineering: Efpophis and contributors
+(https://github.com/Efpophis/LDGControl); band thresholds: Ardugnome.
+Vendored ArduinoJson (Benoit Blanchon) and Unity (ThrowTheSwitch) retain
+their licenses in components/arduinojson/LICENSE.txt and tests/unity/LICENSE.txt.
+
+ArduinoJson 7.4.3 local patch: the default CollectionIterator initializes
+nextId_ to NULL_SLOT, keeping empty iterator copies fully initialized.
+
+esp_websocket_client 1.6.1, Espressif esp-protocols commit
+b7f3de500a4fd4b58e4248093067058959833260, is vendored under its original
+license. Local change: create its worker with xTaskCreatePinnedToCore(..., 0).
+The upstream configuration does not expose task affinity. No TLS scheduling
+patches or linker wrappers are used.
+
+Display palette, control layout and DejaVu Sans glyph subsets adapted from
+Remote-LDGControl. Font copyright and license: docs/licenses/DejaVu.txt.
