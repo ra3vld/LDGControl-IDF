@@ -56,9 +56,9 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: build-*
-          path: artifacts
+          path: build-artifacts
       - run: npm ci --prefix web-flasher --ignore-scripts --no-audit --no-fund
-      - run: node tools/build_web_flasher.mjs dist/web-flasher --build-root artifacts
+      - run: node tools/build_web_flasher.mjs dist/web-flasher --build-root build-artifacts
       - run: npm ci --prefix web --ignore-scripts --no-audit --no-fund
       - run: npx --prefix web-flasher playwright install --with-deps chromium
       - run: PLAYWRIGHT_MODULE=../web-flasher/node_modules/playwright CHROMIUM_PATH='' WEB_FLASHER_SITE=dist/web-flasher node tests/browser_flasher.cjs
