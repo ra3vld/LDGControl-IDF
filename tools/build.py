@@ -13,8 +13,7 @@ if (root/('build-'+args.board)/'CMakeCache.txt').exists():
     subprocess.run([sys.executable,str(root/'tools/firmware_identity.py'),str(root/('build-'+args.board)/'generated/build_identity.hpp')],check=True)
 command=[sys.executable,str(Path(args.idf_path)/'tools/idf.py'),'-B',str(root/('build-'+args.board)),'-D','LDG_BOARD='+args.board,'-D','PROJECT_VER='+args.version,'reconfigure' if args.configure_only else 'build']
 subprocess.run(command,cwd=root,env=env,check=True)
-for lock in root.glob('dependencies.*.lock'):
-    lock.write_text('\n'.join(line.rstrip() for line in lock.read_text().splitlines())+'\n')
+subprocess.run([sys.executable,str(root/'tools/verify_components.py'),'--board',args.board],cwd=root,env=env,check=True)
 if not args.configure_only:
     binary=root/('build-'+args.board)/'ldgcontrol.bin'
     limit=0x190000 if args.board!='guition' else 0x600000

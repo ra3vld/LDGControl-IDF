@@ -20,7 +20,7 @@ def inputs():
     paths += [ROOT/p for p in ['CMakeLists.txt','dependencies.esp32.lock','dependencies.esp32s3.lock',
         'web/package.json','web/package-lock.json','tools/build.py','tools/build_web.py',
         'tools/web_tools.py','tools/firmware_identity.py','tools/idf-requirements.txt',
-        'tools/site-requirements.txt','release-public.pem']]
+        'tools/site-requirements.txt','tools/verify_components.py','release-public.pem']]
     return sorted(paths)
 def resolved_lock(data):
     # manifest_hash depends on the configure pass and active SDK target. The
@@ -49,7 +49,7 @@ def identity():
     try: commit=git('rev-parse','HEAD')
     except (subprocess.CalledProcessError,FileNotFoundError) as error:
         if (ROOT/'.git').exists() or os.environ.get('GITHUB_ACTIONS')=='true':
-            raise RuntimeError('Cannot identify the source checkout; refusing an unknown CI image') from error
+            raise RuntimeError('Cannot identify the source checkout; refusing an unknown CI image: '+str(getattr(error,'stderr',''))) from error
         commit='unknown' # Building an extracted source archive is supported.
     return {'commit':commit,'source_digest':digest}
 if __name__=='__main__':

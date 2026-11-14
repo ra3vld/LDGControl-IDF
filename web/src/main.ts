@@ -308,6 +308,7 @@ for (const [name, fields] of Object.entries(sections)) {
         form.append(scan, choices);
         let networks: {ssid: string; secure: boolean; rssi: number}[] = [];
         choices.onchange = () => {
+            if (choices.value === '') return;
             const selected = networks[Number(choices.value)];
             if (!selected) return;
             (form.elements.namedItem('ssid') as HTMLInputElement).value = selected.ssid;

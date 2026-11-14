@@ -149,8 +149,10 @@ static bool text(JsonVariantConst v, char *out, size_t n, bool secret = false) {
     const char *s = v.as<const char *>();
     if (strlen(s) >= n || v.as<JsonString>().size() != strlen(s) || !ldg::validConfigText(s))
         return false;
-    if (!secret || s[0])
+    if (!secret || s[0]) {
+        if (secret) memset(out,0,n);
         strcpy(out, s);
+    }
     return true;
 }
 template <class T> static bool number(JsonVariantConst v, T &out, int lo, int hi) {
@@ -247,7 +249,7 @@ ldg::Result saveSettings(const char *section, JsonVariantConst in, uint32_t expe
         SECRET("password", d.wifiPassword);
         if (!in["clear_password"].isUnbound()) {
             valid &= in["clear_password"].is<bool>();
-            if (in["clear_password"] == true) d.wifiPassword[0] = 0;
+            if (in["clear_password"] == true) memset(d.wifiPassword,0,sizeof(d.wifiPassword));
         }
         if (!in["ssid"].isUnbound() || !in["password"].isUnbound() || in["clear_password"] == true) {
             const size_t n = strlen(d.wifiPassword);
@@ -269,7 +271,7 @@ ldg::Result saveSettings(const char *section, JsonVariantConst in, uint32_t expe
         SECRET("password", d.mqttPassword);
         if (!in["clear_password"].isUnbound()) {
             valid &= in["clear_password"].is<bool>();
-            if (in["clear_password"] == true) d.mqttPassword[0] = 0;
+            if (in["clear_password"] == true) memset(d.mqttPassword,0,sizeof(d.mqttPassword));
         }
         for (const char* p = d.mqttBroker; *p; ++p)
             valid &= uint8_t(*p) > 32 && uint8_t(*p) < 127 && !strchr("/#+@", *p);

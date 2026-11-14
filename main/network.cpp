@@ -6,6 +6,7 @@
 #include "mqtt_health.hpp"
 #include "managed_mqtt_ca.h"
 #include "mdns.h"
+#include "wifi_storage.hpp"
 #include "esp_err.h"
 #include "tci_protocol.h"
 #include "esp_wifi.h"
@@ -38,6 +39,7 @@ static const char* hostname="ldgcontrol-remote";
 static const char* hostname="ldgcontrol-display";
 #endif
 static std::atomic<bool> mdnsReady{false};
+static WifiStorageStatus wifiStorage;
 struct ScanEntry {char ssid[33]{};int rssi=0;bool secure=false;};
 static ScanEntry scanEntries[12];
 static unsigned scanCount=0;
@@ -101,6 +103,8 @@ void networkDiagnostics(JsonObject out) {
     out["tls_output_bytes"]=CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN;
     out["trust"]=!h.tls?"none":h.managed?"ISRG Root X2":"certificate_bundle";
     out["published"]=h.published;out["publish_failures"]=h.publishFailures;
+    out["wifi_storage"]=wifiStorage.ram?"ram":"unavailable";
+    out["wifi_storage_error"]=esp_err_to_name(wifiStorage.error);
     out["hostname"]=hostname;out["mdns"]=mdnsReady.load();
 }
 static bool stationConfigured = false;
@@ -687,6 +691,8 @@ void startNetwork() {
     stationConfigured = c.device.wifiSSID[0];
     esp_wifi_set_storage(WIFI_STORAGE_RAM);
     esp_wifi_set_mode(WIFI_MODE_APSTA);
+    wifiStorage=prepareWifiStorage();
+    stationConfigured=stationConfigured && wifiStorage.ram;
     wifi_config_t ap{};
     strcpy(reinterpret_cast<char *>(ap.ap.ssid), "LDGControl-IDF");
     strcpy(reinterpret_cast<char *>(ap.ap.password), "ldgcontrol");
@@ -696,9 +702,7 @@ void startNetwork() {
     esp_wifi_set_config(WIFI_IF_AP, &ap);
     if (stationConfigured) {
         wifi_config_t sta{};
-        strlcpy(reinterpret_cast<char *>(sta.sta.ssid), c.device.wifiSSID, sizeof(sta.sta.ssid));
-        strlcpy(reinterpret_cast<char *>(sta.sta.password), c.device.wifiPassword,
-                sizeof(sta.sta.password));
+        fillWifiStation(sta,c.device.wifiSSID,c.device.wifiPassword);
         esp_wifi_set_config(WIFI_IF_STA, &sta);
         esp_netif_set_hostname(station, hostname);
         if (c.device.useStaticIP) {

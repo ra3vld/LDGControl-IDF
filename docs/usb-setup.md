@@ -31,6 +31,8 @@ setting up an unconnected tuner is allowed.
 
 ![English USB installer](screenshots/usb-installer-en.png)
 
+Installer shown with example settings.
+
 Use **Stop setup** to cancel pending setup. A failed write keeps the form and
 lets you retry. Keep the tab open while an issued service password awaits
 confirmation. **Start a new link** and **Select another board** request explicit
@@ -82,6 +84,8 @@ The tuner and web settings remain available when MQTT fails.
 
 ![MQTT TLS status and error details](screenshots/web-mqtt-en.png)
 
+Example connection error.
+
 **Service → Diagnostics** includes the firmware version, board, Git commit,
 `source_digest` and `firmware_id` (the running application's ELF SHA-256). It also
 shows heap, task stacks, control-loop timings, LCD service/flush timings, touch
@@ -101,7 +105,9 @@ connection to finish; failed scans can be retried.
 
 A blank password preserves the existing secret. **Clear saved password** explicitly
 removes it when saved. Explicit deletion also removes the old migration backup;
-other active settings remain. **Service → Reset settings** confirms deletion,
+other active settings remain. The Wi-Fi driver uses RAM storage; its old SDK
+credential copy is cleared during startup. Storage errors appear in diagnostics.
+**Service → Reset settings** confirms deletion,
 restores defaults and restarts. Afterwards reconnect to `LDGControl-IDF`, password
 `ldgcontrol`, and sign in with `admin` / `change_me_please`. If the web password is
 lost, reinstall over USB using **Erase device**, then configure the board again.

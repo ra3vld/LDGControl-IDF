@@ -25,7 +25,10 @@ template<size_t N> inline bool patchText(JsonVariantConst doc, const char* key, 
     const auto text = value.as<JsonString>();
     if (text.size() >= N || strlen(text.c_str()) != text.size()) return false;
     if (!validConfigText(text.c_str())) return false;
-    if (!keepEmpty || text.size()) memcpy(target, text.c_str(), text.size() + 1);
+    if (!keepEmpty || text.size()) {
+        if (keepEmpty) memset(target,0,N);
+        memcpy(target, text.c_str(), text.size() + 1);
+    }
     return true;
 }
 
@@ -44,10 +47,10 @@ inline bool patchConnectionConfig(JsonVariantConst doc, DeviceConfig& cfg, bool 
     }
     if (!doc["mqttDiscoveryEnabled"].isUnbound()) cfg.mqttDiscoveryEnabled = doc["mqttDiscoveryEnabled"];
     if (!doc["useStaticIP"].isUnbound()) cfg.useStaticIP = doc["useStaticIP"];
-    if (doc["clearMqttPassword"] == true) cfg.mqttPassword[0] = 0;
+    if (doc["clearMqttPassword"] == true) memset(cfg.mqttPassword,0,sizeof(cfg.mqttPassword));
     if (wifi) {
         if (!patchText(doc,"wifiSSID",cfg.wifiSSID) || !patchText(doc,"wifiPassword",cfg.wifiPassword,true)) return false;
-        if (doc["clearWifiPassword"] == true) cfg.wifiPassword[0] = 0;
+        if (doc["clearWifiPassword"] == true) memset(cfg.wifiPassword,0,sizeof(cfg.wifiPassword));
         if (!doc["wifiSSID"].isUnbound() && !cfg.wifiSSID[0]) return false;
         const size_t length = strlen(cfg.wifiPassword);
         if (cfg.wifiSSID[0] && length && (length < 8 || length > 64)) return false;

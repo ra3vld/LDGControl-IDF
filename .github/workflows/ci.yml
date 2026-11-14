@@ -46,6 +46,8 @@ jobs:
             build-${{ matrix.board }}/flasher_args.json
             build-${{ matrix.board }}/generated/web-assets.json
             build-${{ matrix.board }}/generated/build_identity.json
+            build-${{ matrix.board }}/generated/components-verified.json
+            build-${{ matrix.board }}/dependencies.lock
 
   website:
     needs: [core, firmware]

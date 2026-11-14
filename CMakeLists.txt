@@ -13,7 +13,11 @@ else()
   set(IDF_TARGET esp32)
 endif()
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
-idf_build_set_property(DEPENDENCIES_LOCK "${CMAKE_SOURCE_DIR}/dependencies.${IDF_TARGET}.lock")
+# SDK configure passes may rewrite registry packages as local managed paths.
+# Keep that generated state in the build tree, preserving the pinned contract.
+configure_file("${CMAKE_SOURCE_DIR}/dependencies.${IDF_TARGET}.lock"
+    "${CMAKE_BINARY_DIR}/dependencies.lock" COPYONLY)
+idf_build_set_property(DEPENDENCIES_LOCK "${CMAKE_BINARY_DIR}/dependencies.lock")
 project(ldgcontrol VERSION 0.1.0)
 include($ENV{IDF_PATH}/tools/cmake/version.cmake)
 if(NOT "${IDF_VERSION_MAJOR}.${IDF_VERSION_MINOR}.${IDF_VERSION_PATCH}" VERSION_EQUAL "5.5.5")

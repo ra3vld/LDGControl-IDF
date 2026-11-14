@@ -1,5 +1,5 @@
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
-idf_component_register(SRCS "app.cpp" "settings.cpp" "http.cpp" "network.cpp" "display.cpp" "display_fonts.cpp" "update.cpp" "sensors.cpp" "recovery.cpp" "provisioning.cpp"
+idf_component_register(SRCS "app.cpp" "settings.cpp" "http.cpp" "network.cpp" "display.cpp" "display_fonts.cpp" "update.cpp" "sensors.cpp" "recovery.cpp" "provisioning.cpp" "wifi_storage.cpp"
     INCLUDE_DIRS "." "${CMAKE_BINARY_DIR}/generated"
     EMBED_TXTFILES "../release-public.pem"
     REQUIRES mdns ldg_core arduinojson esp_wifi esp_netif esp_event nvs_flash esp_timer esp_http_server esp_http_client mqtt esp_lcd driver esp_adc esp_https_ota app_update mbedtls esp_websocket_client lvgl)
