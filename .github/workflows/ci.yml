@@ -15,6 +15,8 @@ jobs:
       - run: python3 tools/build_web.py build-web/generated
       - run: node tools/test_web.mjs
       - run: python3 tests/test_web_flasher.py
+      - run: python3 -m pip install --target .tools/site-python -r tools/site-requirements.txt
+      - run: PYTHONPATH=.tools/site-python python3 tests/test_firmware_identity.py
   firmware:
     strategy:
       fail-fast: false
@@ -43,6 +45,7 @@ jobs:
             build-${{ matrix.board }}/flash_args
             build-${{ matrix.board }}/flasher_args.json
             build-${{ matrix.board }}/generated/web-assets.json
+            build-${{ matrix.board }}/generated/build_identity.json
 
   website:
     needs: [core, firmware]
@@ -58,7 +61,8 @@ jobs:
           pattern: build-*
           path: build-artifacts
       - run: npm ci --prefix web-flasher --ignore-scripts --no-audit --no-fund
-      - run: node tools/build_web_flasher.mjs dist/web-flasher --build-root build-artifacts
+      - run: python3 -m pip install --target .tools/site-python -r tools/site-requirements.txt
+      - run: PYTHONPATH=.tools/site-python node tools/build_web_flasher.mjs dist/web-flasher --build-root build-artifacts
       - run: npm ci --prefix web --ignore-scripts --no-audit --no-fund
       - run: npx --prefix web-flasher playwright install --with-deps chromium
       - run: PLAYWRIGHT_MODULE=../web-flasher/node_modules/playwright CHROMIUM_PATH='' WEB_FLASHER_SITE=dist/web-flasher node tests/browser_flasher.cjs
