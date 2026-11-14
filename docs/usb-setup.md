@@ -9,22 +9,46 @@ or Edge. Connect a USB data cable and close other serial monitors. Select exactl
 **headless**, **Sunton ESP32-3248S035C** or **Guition ESP32-4848S040**, matching the
 board and its memory. See [wiring](hardware.md) before attaching LDG.
 
-1. Select the board and confirm the model/display checkbox.
-2. Optionally enable **Write settings over USB after flashing**. Enter Wi-Fi and
-   choose whether to preserve, configure or disable MQTT. Blank fields marked
-   **Keep unchanged** preserve existing values. **Open Wi-Fi network** explicitly
-   removes the saved Wi-Fi password. For a private broker, uncheck **Keep the
-   password stored on the board** to replace it; an empty replacement deletes it.
-3. Select **Connect and install** and choose the board's serial port. The install
-   dialog asks about **Erase device**. Erasing removes all settings; keep erasing
-   disabled to preserve NVS. First migration from the parent firmware requires
-   the complete USB bundle, including bootloader and partition table.
-4. Wait for installation. With USB setup enabled, the installer releases the port
-   and reconnects to the application. Settings are saved, read back, and, when a
-   network restart is required, read again after reboot.
+The configurator follows five numbered sections. On a desktop, board and
+configuration are on the left, installation on the right, with setup and
+connections below. On a phone they follow the same numbered order.
 
-**Apply to an already flashed board** performs setup without flashing. Tuner
-commands and automation pause during an active USB setup session; an ongoing
+1. **Select your board.** Match the model, memory and display.
+2. **Firmware configuration.** Check the included functions and prepared build.
+   Optional services start after configuration; select the local-controller or
+   remote-panel role later in the device settings.
+3. **Install firmware.** Confirm the hardware and select **Connect and install**.
+   **Apply step 4 settings automatically after installation** is enabled by
+   default: fill step 4 before installing, or uncheck it to configure later.
+   The install dialog offers **Erase device**. Erasing removes all settings;
+   leave it disabled to preserve NVS. First migration from the parent firmware
+   requires the complete USB bundle, including bootloader and partition table.
+4. **Set up your device.** Enter Wi-Fi and optionally choose your own broker or
+   **rotator.r3v.ru · add LDG to my shack**. **Keep unchanged** preserves stored
+   values; every integration can be skipped. **Open Wi-Fi network** explicitly
+   removes the Wi-Fi password. For a private broker, uncheck **Keep the password
+   stored on the board** to replace it; an empty replacement deletes it.
+   **Connect over USB and apply settings** also configures an already flashed
+   board. After flashing, USB setup starts automatically if enabled in step 3.
+5. **Connections and next steps.** Open the selected board's wiring, choose your
+   device role and configure the integrations you need. Check antenna ports,
+   names and automatic switching before use.
+
+Settings are saved and read back over USB; after a required restart, the same
+physical board and its saved settings are checked again. **After setup** shows
+network, MQTT and service status separately. Wi-Fi may take up to 25 seconds to
+connect after a network change. A saved configuration does not by itself prove
+an MQTT connection or fresh service telemetry.
+
+**Go to device** stays visible beside the apply button and opens a new tab after
+USB confirms a valid Wi-Fi address. Connect the computer to the same network.
+**Check connection over USB** reads current status without writing settings.
+The previous address is cleared on a new attempt, installation, profile change
+or **Select another board**. If offline, join the `LDGControl-IDF` access point
+with password `ldgcontrol`, then use **Open access-point page** in step 5.
+You can correct Wi-Fi and retry without reinstalling.
+
+During an active USB session tuner commands and automation pause; an ongoing
 hardware operation or confirmed transmission must finish before applying or
 rebooting. Closing USB setup releases the pause after five seconds. Reading or
 setting up an unconnected tuner is allowed.
@@ -53,12 +77,24 @@ your account. The page polls the approved session, receives device-specific MQTT
 credentials, writes them over USB and verifies them before acknowledging the
 service. A remote panel cannot register as the local tuner controller.
 
+The installer adds the LDG card automatically after you approve linking and
+writes its MQTT credentials with verified TLS on port 8883. It acknowledges
+credential delivery only after USB readback, including after a required reboot.
+**Check service status** refreshes administrator approval, blocked/disabled
+access and fresh telemetry without rewriting credentials. An outage keeps the
+saved settings and offers a retry. If `ERR_BLOCKED_BY_CLIENT` appears, allow
+requests to `rotator.r3v.ru` in the ad blocker for `ra3vld.github.io` and retry in
+the same tab. Changing profiles with an unconfirmed service password is blocked
+until you confirm it or explicitly choose **Select another board**.
+
 Wi-Fi and private broker passwords go only to the board. The service receives
 the device ID, shack name and a temporary PKCE challenge. Issued credentials stay
 in this tab's memory until verification; they are not stored in browser storage.
 The resulting card can remain offline or await administrator approval. Check
 **MQTT / Home Assistant** on the local device page for the actual connection
 state. Account linking does not require live RF or a connected LDG.
+
+![Post-setup status before live telemetry arrives.](screenshots/usb-postsetup-en.png)
 
 ## MQTT TLS troubleshooting
 

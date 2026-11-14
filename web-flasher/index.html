@@ -1,11 +1,72 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="ldg-service" content="https://rotator.r3v.ru"><title>LDGControl-IDF · Install and configure</title><link rel="stylesheet" href="./style.css"><script type="module" src="./app.js"></script></head><body><main>
-<header><button id="language" type="button">Русский</button><p class="eyebrow">LDGCONTROL-IDF</p><h1>Connect your tuner</h1><p>ESP-IDF firmware and optional USB setup.</p></header>
-<section><h2>1. Select your board</h2><label>Profile<select id="profile"></select></label><p id="profileRole"></p><figure id="boardPhoto"><img id="boardImage" alt=""><figcaption><a id="photoSource" target="_blank" rel="noopener"></a></figcaption></figure><p id="buildInfo"></p><ul id="features"></ul><a id="wiring" target="_blank" rel="noopener">Board wiring ↗</a><p id="catalogError" role="alert"></p></section>
-<section><h2>2. Settings after installation</h2><label class="check"><input id="preconfigure" type="checkbox"> Write settings over USB after flashing</label><p>Wi-Fi and your own broker require no registration. You can add the device to rotator.r3v.ru later.</p>
-<form id="settingsForm" hidden><fieldset id="settingsFields"><label>Shack name<input id="deviceName" maxlength="48" autocomplete="off" placeholder="LDG"></label><label>Wi-Fi SSID<input id="ssid" autocomplete="off" placeholder="Keep unchanged"></label><label>Wi-Fi password<input id="wifiPassword" type="password" autocomplete="new-password"></label><label class="check"><input type="checkbox" id="openWifi"> Open Wi-Fi network</label>
-<label>Network configuration<select id="ipMode"><option value="preserve">Keep unchanged</option><option value="dhcp">DHCP</option><option value="static">Static IP</option></select></label><div id="staticFields" hidden><label>IP address<input id="ip" inputmode="decimal"></label><label>Subnet mask<input id="mask" value="255.255.255.0" inputmode="decimal"></label><label>Gateway<input id="gateway" value="0.0.0.0" inputmode="decimal"></label><label>DNS<input id="dns" value="0.0.0.0" inputmode="decimal"></label></div>
-<label>MQTT<select id="mqttMode"><option value="preserve">Keep unchanged</option><option value="manual">Own or local broker</option><option value="service">rotator.r3v.ru · add LDG to my shack</option><option value="off">Disable MQTT</option></select></label><div id="mqttFields" hidden><label>Broker host<input id="mqttHost" maxlength="63" placeholder="192.168.1.10"></label><label>Port<input id="mqttPort" type="number" min="1" max="65535" value="1883"></label><p>Port 8883 uses TLS with certificate and hostname verification. Other ports use plain MQTT.</p><label>MQTT username<input id="mqttUser" autocomplete="off"></label><label>MQTT password<input id="mqttPassword" type="password" autocomplete="new-password"></label><label class="check"><input id="keepMqttPassword" type="checkbox" checked> Keep the password stored on the board</label><label class="check"><input id="discovery" type="checkbox"> Home Assistant Discovery</label></div>
-<p id="serviceHelp" hidden>After connecting USB, open the account sign-in and consent link. Wi-Fi and private broker credentials go only to the board over USB.</p></fieldset><button type="submit" id="applySettings">Apply to an already flashed board</button></form>
-<button id="cancelSettings" hidden>Stop setup</button><a id="consent" target="_blank" rel="noopener" class="button" hidden>Sign in and approve LDG linking ↗</a><button id="newLink" hidden>Start a new link</button><button id="otherDevice" hidden>Select another board</button><p id="settingsStatus" role="status" aria-live="polite"></p><a id="deviceLink" target="_blank" rel="noopener" hidden>Open LDG in my shack ↗</a><a id="localLink" target="_blank" rel="noopener" hidden>Open the local device page ↗</a></section>
-<section><h2>3. Install firmware</h2><ol><li>Connect the board using a USB data cable.</li><li>Close serial monitors and other applications using the device.</li><li>Check the profile and select the USB port.</li></ol><label class="check"><input type="checkbox" id="confirmProfile"> The board model and attached display match</label><div id="installer"></div><p id="installHint" role="status"></p><div id="postInstall" hidden role="status"><strong>✓ Firmware installed</strong><p id="postInstallProfile"></p><a id="postInstallWiring" target="_blank" rel="noopener">Open peripheral wiring ↗</a></div><a id="download" download hidden>Download USB bundle</a><p>If problems persist after installation, repeat with Erase device. Full erase removes settings; enter them again afterwards. Without erase, NVS is preserved.</p><p>If connection fails: hold BOOT, press and release EN/RESET, then release BOOT. Desktop Chrome or Edge with Web Serial is required.</p></section>
-<footer><a href="https://github.com/ra3vld/LDGControl-IDF">Source code</a> · <a href="./THIRD_PARTY_LICENSES.txt">Licenses</a> · <a href="./sources.zip">Firmware sources</a></footer></main><div id="toast" hidden role="alert" tabindex="0"></div></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="ldg-service" content="https://rotator.r3v.ru">
+  <title>LDGControl-IDF · Install and configure</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+<main>
+  <header><div class="topbar"><a class="brand" href="./">LDGCONTROL-IDF</a><button id="language" type="button">Русский</button></div><p class="eyebrow">FIRMWARE CONFIGURATOR</p><h1>Connect your tuner</h1><p>Select a board, install firmware and set up your network over USB.</p><p>Every integration is optional. You can skip setup and return later.</p></header>
+  <noscript>Enable JavaScript to select and install firmware.</noscript>
+  <div class="workspace">
+    <div class="configuration">
+      <section id="boardPanel" aria-labelledby="boardHeading">
+        <div class="section-heading"><span class="step">01</span><div><h2 id="boardHeading">Select your board</h2><p>Check the model, Flash, PSRAM and display.</p></div></div>
+        <label>Board<select id="profile"></select></label><p id="profileRole"></p>
+        <figure id="boardPhoto"><img id="boardImage" alt=""><figcaption><a id="photoSource" target="_blank" rel="noopener noreferrer"></a></figcaption></figure>
+        <p id="catalogError" role="alert"></p>
+      </section>
+      <section id="profilePanel" aria-labelledby="profileHeading">
+        <div class="section-heading"><span class="step">02</span><div><h2 id="profileHeading">Firmware configuration</h2><p id="selectedName"></p></div></div>
+        <p id="buildInfo"></p><ul id="features"></ul><p>Included services start only when configured. Change the controller or remote-panel role in the device settings.</p>
+        <a id="wiring" target="_blank" rel="noopener noreferrer">Board wiring ↗</a>
+      </section>
+    </div>
+    <section id="installPanel" aria-labelledby="installHeading">
+      <div class="section-heading"><span class="step">03</span><div><h2 id="installHeading">Install firmware</h2><p>Use the prepared build for your board.</p></div></div>
+      <ol><li>Connect the board using a USB data cable.</li><li>Close serial monitors and other applications using the device.</li><li>Check the profile and select the USB port.</li></ol>
+      <label class="check"><input type="checkbox" id="confirmProfile"> The board model and attached display match</label>
+      <label class="check"><input id="preconfigure" type="checkbox" checked> Apply step 4 settings automatically after installation</label>
+      <p class="small">Complete step 4 before installing, or uncheck this option and configure later.</p>
+      <div id="installer"></div><p id="installHint" role="status"></p>
+      <div id="postInstall" hidden role="status"><strong>✓ Firmware installed</strong><p id="postInstallProfile"></p><p id="postInstallNext"></p><a id="postInstallWiring" target="_blank" rel="noopener noreferrer">Open peripheral wiring ↗</a></div>
+      <a id="download" download hidden>Download USB bundle</a>
+      <details><summary>What happens to saved settings?</summary><p>If problems persist after installation, repeat with Erase device. Full erase removes settings; enter them again afterwards. Without erase, NVS is preserved.</p></details>
+      <p class="small">If connection fails: hold BOOT, press and release EN/RESET, then release BOOT. Desktop Chrome or Edge with Web Serial is required.</p>
+    </section>
+    <section id="presetPanel" aria-labelledby="presetHeading">
+      <div class="section-heading"><span class="step">04</span><div><h2 id="presetHeading">Set up your device</h2><p>Apply settings after installation or connect an already flashed board.</p></div></div>
+      <p>Wi-Fi and your own broker require no registration. You can add the device to rotator.r3v.ru later.</p>
+      <form id="settingsForm" autocomplete="off"><fieldset id="settingsFields">
+        <label>Name in my shack<input id="deviceName" maxlength="48" autocomplete="off" placeholder="LDG"></label>
+        <label>Wi-Fi SSID<input id="ssid" autocomplete="off" placeholder="Keep unchanged"></label><label>Wi-Fi password<input id="wifiPassword" type="password" autocomplete="new-password"></label><label class="check"><input type="checkbox" id="openWifi"> Open Wi-Fi network</label>
+        <label>Network configuration<select id="ipMode"><option value="preserve">Keep unchanged</option><option value="dhcp">DHCP</option><option value="static">Static IP</option></select></label>
+        <div id="staticFields" class="field-grid" hidden><label>IP address<input id="ip" inputmode="decimal"></label><label>Subnet mask<input id="mask" value="255.255.255.0" inputmode="decimal"></label><label>Gateway<input id="gateway" value="0.0.0.0" inputmode="decimal"></label><label>DNS<input id="dns" value="0.0.0.0" inputmode="decimal"></label></div>
+        <label>MQTT<select id="mqttMode"><option value="preserve">Keep unchanged</option><option value="manual">Own or local broker</option><option value="service">rotator.r3v.ru · add LDG to my shack</option><option value="off">Disable MQTT</option></select></label>
+        <div id="mqttFields" hidden><div class="field-grid"><label>Broker host<input id="mqttHost" maxlength="63" placeholder="192.168.1.10"></label><label>Port<input id="mqttPort" type="number" min="1" max="65535" value="1883"></label></div><p class="small">Port 8883 uses TLS with certificate and hostname verification. Other ports use plain MQTT.</p><label>MQTT username<input id="mqttUser" autocomplete="off"></label><label>MQTT password<input id="mqttPassword" type="password" autocomplete="new-password"></label><label class="check"><input id="keepMqttPassword" type="checkbox" checked> Keep the password stored on the board</label><label class="check"><input id="discovery" type="checkbox"> Home Assistant Discovery</label></div>
+        <p id="serviceHelp" hidden>After connecting USB, open the account sign-in and consent link. Wi-Fi and private broker credentials go only to the board over USB.</p>
+        <details id="serviceTroubleshooting" hidden><summary>Cannot reach rotator.r3v.ru?</summary><p>If the browser reports ERR_BLOCKED_BY_CLIENT, allow requests to rotator.r3v.ru in your ad blocker for ra3vld.github.io. Retry in this tab; reinstalling is unnecessary.</p></details>
+      </fieldset>
+      <div class="actions"><button type="submit" id="applySettings">Connect over USB and apply settings</button><a id="localLink" class="button secondary" target="_blank" rel="noopener noreferrer" aria-disabled="true" tabindex="-1">Go to device ↗</a><button type="button" id="checkConnection" class="secondary">Check connection over USB</button><button type="button" id="cancelSettings" hidden>Stop setup</button></div></form>
+      <p id="settingsStatus" role="status" aria-live="polite"></p>
+      <a id="consent" target="_blank" rel="noopener noreferrer" class="button" hidden>Sign in and approve LDG linking ↗</a>
+      <div id="postSetup" hidden><h3>After setup</h3><dl><dt>Network</dt><dd id="networkStatus"></dd><dt>MQTT</dt><dd id="mqttStatus"></dd><dt>rotator.r3v.ru</dt><dd id="serviceStatus"></dd></dl><a id="deviceLink" target="_blank" rel="noopener noreferrer" hidden>Open LDG in my shack ↗</a><button type="button" id="refreshService" class="secondary" hidden>Check service status</button></div>
+      <div class="actions"><button type="button" id="newLink" class="secondary" hidden>Start a new link</button><button type="button" id="otherDevice" class="secondary" hidden>Select another board</button></div>
+      <p class="small">Passwords stay in this tab until it is closed. They are never saved in browser storage. Keep this tab open until service credentials are confirmed on the board.</p>
+    </section>
+    <section id="connectionsPanel" aria-labelledby="connectionsHeading">
+      <div class="section-heading"><span class="step">05</span><div><h2 id="connectionsHeading">Connections and next steps</h2><p>Open the wiring for your selected board before attaching LDG.</p></div></div>
+      <p><a id="boardConnections" target="_blank" rel="noopener noreferrer">Open peripheral wiring ↗</a></p>
+      <ol><li>Open the device page on the same network. Check Wi-Fi and MQTT status in Settings.</li><li>Choose local LDG or the remote-panel role, and configure only the integrations you need.</li><li>Check antenna ports, names and automatic switching before use.</li></ol>
+      <p><a id="setupGuide" target="_blank" rel="noopener noreferrer">USB setup and troubleshooting ↗</a></p>
+      <details><summary>No network connection?</summary><p>Join the LDGControl-IDF Wi-Fi access point, password ldgcontrol. Then open the access-point page. Your computer must be connected to that Wi-Fi network.</p><a href="http://192.168.4.1/" target="_blank" rel="noopener noreferrer">Open access-point page ↗</a><p>Default web login: admin / change_me_please. Change it in the device settings.</p><p>Correct Wi-Fi settings in step 4 and apply again, or use Check connection over USB to read status without changing settings.</p></details>
+    </section>
+  </div>
+  <footer><a href="https://github.com/ra3vld/LDGControl-IDF">Source code</a> · <a href="./THIRD_PARTY_LICENSES.txt">Licenses</a> · <a href="./sources.zip">Firmware sources</a></footer>
+</main><div id="toast" hidden role="alert" tabindex="0"></div>
+</body></html>
