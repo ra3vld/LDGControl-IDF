@@ -11,12 +11,18 @@ export type State = {
     swr: number | null;
     band: string;
     mode: number;
+    tuner_mode?: number;
+    tuning_mode?: string;
+    antenna_names?: string[];
     antenna: number;
     meter_age_ms: number;
     scale_watts?: number;
     logarithmic?: boolean;
     radio?: {
         state: string;
+        provider?: string;
+        tuning?: boolean | null;
+        age_ms?: number;
         tx_frequency_hz: number | null;
         band: string;
         rx_tx: string;
@@ -58,6 +64,7 @@ Object.assign(texts, {
     minutes30: ['−30 мин', '−30 min'],
     'Home Assistant discovery': ['Обнаружение Home Assistant', 'Home Assistant discovery']
 });
+Object.assign(texts, {"clear_password": ["Очистить сохранённый пароль", "Clear saved password"], "scanWifi": ["Найти Wi-Fi", "Find Wi-Fi networks"], "scanWaiting": ["Ожидание завершения подключения TLS…", "Waiting for TLS connection to finish…"], "scanConnecting": ["Поиск сетей…", "Scanning networks…"], "chooseWifi": ["Выберите сеть", "Choose a network"], "factoryReset": ["Сбросить настройки", "Reset settings"], "resetConfirm": ["Удалить настройки и перезапустить устройство? Подключитесь затем к LDGControl-IDF и войдите как admin / change_me_please.", "Delete settings and restart? Reconnect to LDGControl-IDF and sign in as admin / change_me_please."], "resetSaved": ["Настройки сброшены. Подключитесь к LDGControl-IDF; вход admin / change_me_please.", "Settings reset. Reconnect to LDGControl-IDF; sign in as admin / change_me_please."], "settings_save_failed": ["Не удалось сохранить настройки. Повторите.", "Settings could not be saved. Retry."], "mqttConnecting": ["Подключение к брокеру…", "Connecting to broker…"], "waiting_retry": ["Ожидание повторного подключения", "Waiting to reconnect"], "waiting_wifi": ["Ожидание Wi-Fi", "Waiting for Wi-Fi"], "paused": ["Приостановлено", "Paused"], "disabled": ["Выключено", "Disabled"], "disconnected": ["Нет связи", "Disconnected"], "connected": ["Подключено", "Connected"], "tls_clock": ["TLS ожидает точное время. Проверьте DNS и доступ к NTP.", "TLS is waiting for clock synchronization. Check DNS and NTP access."], "tls_memory": ["TLS ожидает свободную внутреннюю память и достаточно крупный блок. Отключите лишние клиенты и повторите.", "TLS is waiting for internal memory and a large enough block. Disconnect extra clients and retry."], "memory": ["Недостаточно памяти для клиента MQTT.", "Not enough memory for the MQTT client."], "tls_certificate": ["Сертификат или имя MQTT-сервера не прошли проверку. Проверьте адрес и время устройства.", "MQTT certificate or hostname verification failed. Check the address and device clock."], "tls_handshake": ["Ошибка TLS. Проверьте адрес, сертификат, время и приведённый код.", "TLS handshake failed. Check the address, certificate, clock and error code."], "credentials": ["Брокер отклонил логин или пароль. Исправьте реквизиты и сохраните.", "Broker rejected username or password. Edit and save the credentials."], "authorization": ["Брокер запретил доступ. Проверьте одобрение и доступ устройства на rotator.r3v.ru.", "Broker denied authorization. Check device approval and access on rotator.r3v.ru."], "broker_refused": ["Брокер отклонил подключение. Проверьте код ответа.", "Broker refused the connection. Check its response code."], "transport": ["Нет соединения MQTT. Проверьте адрес, DNS, порт и сеть.", "MQTT connection failed. Check address, DNS, port and network."], "connection_lost": ["Соединение MQTT потеряно. Повторное подключение выполняется автоматически.", "MQTT connection lost. Reconnection is automatic."], "publish": ["Ошибка отправки MQTT. Проверьте подключение и повторите.", "MQTT publish failed. Check the connection and retry."], "initialization": ["Не удалось создать MQTT-клиент. Проверьте свободную память.", "MQTT client initialization failed. Check free memory."], "keepPassword": ["Пустое поле сохраняет пароль", "Leave blank to keep the saved password"]});
 type Language = 'en' | 'ru';
 function preferredLanguage(): Language {
     try { return localStorage.getItem('ldg.language') === 'ru' ? 'ru' : 'en'; }
@@ -69,6 +76,7 @@ function translate() {
     document.documentElement.lang = language;
     document.querySelectorAll<HTMLElement>('[data-i18n]').forEach(el => el.textContent = t(el.dataset.i18n!) + (el.dataset.i18nSuffix ?? ''));
     document.querySelectorAll<HTMLElement>('[data-i18n-aria-label]').forEach(el => el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel!)));
+    document.querySelectorAll<HTMLInputElement>('[data-i18n-placeholder]').forEach(el => el.placeholder = t(el.dataset.i18nPlaceholder!));
     $('language').textContent = language === 'ru' ? 'EN' : 'RU';
     $('language').setAttribute('aria-label', t(language === 'ru' ? 'switchToEnglish' : 'switchToRussian'));
     $('language').title = $('language').getAttribute('aria-label')!;
@@ -147,8 +155,12 @@ function render() { const fresh = state && performance.now() - lastStateAt < 300
     $<HTMLMeterElement>(id).value = fresh ? (s?.logarithmic ? Math.log10(1 + 9 * v) : v) : 0;
 } $('swr').dataset.level = !fresh || s?.swr == null ? 'unknown' : s.swr > 2 ? 'danger' : s.swr > 1.5 ? 'warning' : 'normal';
     $('mode').dataset.mode = fresh ? String(s?.mode ?? 0) : '0';
-    for (const [command, selected] of [['antenna_1', s?.antenna === 1], ['antenna_2', s?.antenna === 2], ['auto', s?.mode === 1], ['manual', s?.mode === 2], ['bypass', s?.mode === 3], ['controlled', s?.mode === 4]] as const)
+    for (const [command, selected] of [['antenna_1', s?.antenna === 1], ['antenna_2', s?.antenna === 2], ['auto', s?.mode === 1], ['manual', s?.mode === 2], ['bypass', (s?.tuner_mode ?? s?.mode) === 3], ['controlled', s?.mode === 4]] as const)
         document.querySelector(`[data-command="${command}"]`)?.setAttribute('aria-pressed', String(Boolean(fresh && selected)));
+    for (const [index, command] of ['antenna_1', 'antenna_2'].entries()) {
+        const button = document.querySelector<HTMLButtonElement>(`[data-command="${command}"]`);
+        if (button) button.textContent = s?.antenna_names?.[index] || `ANT ${index + 1}`;
+    }
     $('external-state').textContent = s?.external_antenna ? `${s.external_antenna.requested || '—'} → ${s.external_antenna.confirmed || '—'} · ${t(s.external_antenna.result)}${s.route?.stage !== 'disabled' ? ' · ' + t(s.route?.stage ?? '') + (s.route?.partial ? ' · ' + t('partial') : '') : ''}` : ''; }
 document.addEventListener('ldg-language-change', render);
 setInterval(render, 500);
@@ -190,8 +202,8 @@ async function command(code: string, button: HTMLButtonElement, target: HTMLElem
         message(target, t('unavailable'), true);
         return;
     }
-    if (code === 'bypass' && state.mode === 3)
-        code = 'auto';
+    if (code === 'bypass' && (state.tuner_mode ?? state.mode) === 3)
+        code = state.mode === 4 || state.tuning_mode === 'controller' ? 'controlled' : 'auto';
     const id = uuid(), request = { command: code, request_id: id, source_token: state.source_token, expires_uptime_ms: (state.uptime_ms + Math.floor(performance.now() - lastStateAt) + 1900) >>> 0, port };
     button.disabled = true;
     message(target, t('accepted'));
@@ -231,7 +243,7 @@ type Field = [
     number?,
     number?
 ];
-const sections: Record<string, Field[]> = { network: [['ssid', 'SSID', 'text'], ['password', 'password', 'password'], ['static', 'Static IP', 'checkbox'], ['ip', 'IP', 'text'], ['netmask', 'Netmask', 'text'], ['gateway', 'Gateway', 'text'], ['dns', 'DNS', 'text']], mqtt: [['enabled', 'enabled', 'checkbox'], ['host', 'host', 'text'], ['port', 'port', 'number', 1, 65535], ['username', 'username', 'text'], ['password', 'password', 'password'], ['discovery', 'Home Assistant discovery', 'checkbox']], radio: [['enabled', 'enabled', 'checkbox'], ['host', 'host', 'text'], ['port', 'port', 'number', 1, 65535], ['receiver', 'Receiver', 'number', 0, 15]], remote: [['enabled', 'enabled', 'checkbox'], ['host', 'host', 'text']], tuning: [['auto_fallback', 'AUTO fallback', 'checkbox'], ['swr_threshold', 'SWR threshold', 'number', 1.1, 10]], antennas: [['enabled', 'ANT1 / ANT2 auto', 'checkbox'], ['external_enabled', 'External auto', 'checkbox'], ['simulate', 'Simulated switch', 'checkbox'], ['ant1_name', 'ANT1 name', 'text'], ['ant2_name', 'ANT2 name', 'text']], display: [['automatic', 'Auto brightness', 'checkbox'], ['brightness', 'Brightness %', 'number', 1, 100], ['minimum', 'Minimum %', 'number', 1, 100], ['maximum', 'Maximum %', 'number', 1, 100], ['dark_adc', 'Dark ADC', 'number', 0, 4095], ['bright_adc', 'Bright ADC', 'number', 0, 4095], ['rotation', 'Rotation 0 / 180', 'number', 0, 180]], meter: [['watts', 'Scale W', 'number', 1, 1000], ['logarithmic', 'Logarithmic', 'checkbox'], ['psu_voltage', 'PSU voltage', 'number', 8, 18]], device: [['username', 'username', 'text'], ['password', 'password', 'password'], ['uart_rx', 'UART RX', 'number', -1, 48], ['uart_tx', 'UART TX', 'number', -1, 48]] };
+const sections: Record<string, Field[]> = { network: [['ssid', 'SSID', 'text'], ['password', 'password', 'password'], ['clear_password', 'clear_password', 'checkbox'], ['static', 'Static IP', 'checkbox'], ['ip', 'IP', 'text'], ['netmask', 'Netmask', 'text'], ['gateway', 'Gateway', 'text'], ['dns', 'DNS', 'text']], mqtt: [['enabled', 'enabled', 'checkbox'], ['host', 'host', 'text'], ['port', 'port', 'number', 1, 65535], ['username', 'username', 'text'], ['password', 'password', 'password'], ['clear_password', 'clear_password', 'checkbox'], ['discovery', 'Home Assistant discovery', 'checkbox']], radio: [['enabled', 'enabled', 'checkbox'], ['host', 'host', 'text'], ['port', 'port', 'number', 1, 65535], ['receiver', 'Receiver', 'number', 0, 15]], remote: [['enabled', 'enabled', 'checkbox'], ['host', 'host', 'text']], tuning: [['auto_fallback', 'AUTO fallback', 'checkbox'], ['swr_threshold', 'SWR threshold', 'number', 1.1, 10]], antennas: [['enabled', 'ANT1 / ANT2 auto', 'checkbox'], ['external_enabled', 'External auto', 'checkbox'], ['simulate', 'Simulated switch', 'checkbox'], ['ant1_name', 'ANT1 name', 'text'], ['ant2_name', 'ANT2 name', 'text']], display: [['automatic', 'Auto brightness', 'checkbox'], ['brightness', 'Brightness %', 'number', 1, 100], ['minimum', 'Minimum %', 'number', 1, 100], ['maximum', 'Maximum %', 'number', 1, 100], ['dark_adc', 'Dark ADC', 'number', 0, 4095], ['bright_adc', 'Bright ADC', 'number', 0, 4095], ['rotation', 'Rotation 0 / 180', 'number', 0, 180]], meter: [['watts', 'Scale W', 'number', 1, 1000], ['logarithmic', 'Logarithmic', 'checkbox'], ['psu_voltage', 'PSU voltage', 'number', 8, 18]], device: [['username', 'username', 'text'], ['password', 'password', 'password'], ['uart_rx', 'UART RX', 'number', -1, 48], ['uart_tx', 'UART TX', 'number', -1, 48]] };
 const bands = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m'];
 for (const [name, fields] of Object.entries(sections)) {
     const details = document.createElement('details'), summary = document.createElement('summary');
@@ -285,6 +297,60 @@ for (const [name, fields] of Object.entries(sections)) {
             }
             form.append(row);
         }
+    const password = form.elements.namedItem('password') as HTMLInputElement | null;
+    const clearPassword = form.elements.namedItem('clear_password') as HTMLInputElement | null;
+    if (password) {password.dataset.i18nPlaceholder='keepPassword';password.placeholder = t('keepPassword');}
+    if (clearPassword && password) clearPassword.onchange = () => { password.disabled = clearPassword.checked; };
+    if (name === 'network') {
+        const scan = document.createElement('button'), choices = document.createElement('select');
+        scan.type = 'button'; scan.dataset.i18n = 'scanWifi'; scan.textContent = t('scanWifi');
+        choices.hidden = true; choices.setAttribute('aria-label', 'SSID');
+        form.append(scan, choices);
+        let networks: {ssid: string; secure: boolean; rssi: number}[] = [];
+        choices.onchange = () => {
+            const selected = networks[Number(choices.value)];
+            if (!selected) return;
+            (form.elements.namedItem('ssid') as HTMLInputElement).value = selected.ssid;
+            if (clearPassword && password) { clearPassword.checked = !selected.secure; password.disabled = !selected.secure; }
+        };
+        scan.onclick = async () => {
+            scan.disabled = true;
+            try {
+                await api('network/scan', {});
+                for (let i=0;i<45;i++) {
+                    const data = await api('network/scan');
+                    if (data.stage === 'error') throw new Error(data.error || 'network');
+                    if (data.stage === 'complete') {
+                        networks = data.networks; choices.replaceChildren();
+                        const placeholder = document.createElement('option'); placeholder.textContent=t('chooseWifi');placeholder.value='';choices.append(placeholder);
+                        networks.forEach((network,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=`${network.ssid} · ${network.rssi} dBm${network.secure ? ' 🔒' : ''}`;choices.append(option);});
+                        choices.hidden=false; message(result,''); return;
+                    }
+                    message(result,t(data.stage === 'waiting' ? 'scanWaiting' : 'scanConnecting'));
+                    await new Promise(resolve=>setTimeout(resolve,1000));
+                }
+                throw new Error('timeout');
+            } catch (e) { message(result,t((e as Error).message),true); }
+            finally {scan.disabled=false;}
+        };
+    }
+    if (name === 'mqtt') {
+        const status = document.createElement('p'), diagnostic = document.createElement('pre');
+        status.className='action-result';status.setAttribute('role','status');details.append(status,diagnostic);
+        let busy = false;
+        const refresh = async () => {
+            if (!details.open || busy) return;
+            busy=true;
+            try {
+                const health=await api('mqtt');
+                status.textContent=`${t(health.state === 'connecting' ? 'mqttConnecting' : health.state)}${health.error_active ? ' · '+t(health.error) : ''}`;
+                status.classList.toggle('error',!!health.error_active);
+                diagnostic.textContent=JSON.stringify(health,null,2);
+            } catch (e) {status.textContent=t((e as Error).message);}
+            finally {busy=false;}
+        };
+        setInterval(()=>void refresh(),2000);
+    }
     const save = document.createElement('button');
     save.type = 'submit';
     save.dataset.i18n = 'save';
@@ -326,11 +392,14 @@ for (const [name, fields] of Object.entries(sections)) {
     form.onsubmit = async (e) => { e.preventDefault(); const value: Record<string, unknown> = {}; for (const [key, , type] of fields) {
         const input = form.elements.namedItem(key) as HTMLInputElement;
         value[key] = type === 'checkbox' ? input.checked : type === 'number' ? Number(input.value) : input.value;
-    } if (name === 'antennas')
+    } if (value.clear_password) value.password = '';
+    if (name === 'antennas')
         value.bands = bands.map((_, i) => ({ ldg: Number((form.elements.namedItem(`band_${i}_ldg`) as HTMLSelectElement).value), external: Number((form.elements.namedItem(`band_${i}_external`) as HTMLSelectElement).value) })); save.disabled = true; try {
         const saved = await api('config/' + name, { revision, value });
         revision = saved.revision;
         message(result, t(saved.restart_required ? 'savedRestart' : 'saved'));
+        if (clearPassword) clearPassword.checked=false;
+        if (password) password.disabled=false;
         for (const input of form.querySelectorAll<HTMLInputElement>('input[type=password]'))
             input.value = '';
     }
@@ -370,7 +439,7 @@ $('diagnostics-button').onclick = async () => { const result = $('diagnostics').
     for (const [key, value] of Object.entries(values)) {
         const dt = document.createElement('dt'), dd = document.createElement('dd');
         dt.textContent = key;
-        dd.textContent = String(value);
+        dd.textContent = typeof value === 'object' ? JSON.stringify(value,null,2) : String(value);
         $('diagnostics').append(dt, dd);
     }
     message(result, '');
@@ -387,6 +456,13 @@ for (const [id, path] of [['reconnect-mqtt', 'mqtt/reconnect'], ['restart', 'res
     catch (e) {
         message(result, t((e as Error).message), true);
     } };
+$('factory-reset').onclick = async () => {
+    if (!confirm(t('resetConfirm'))) return;
+    const button=$<HTMLButtonElement>('factory-reset'), result=$('reset-result');button.disabled=true;
+    try {await api('reset',{confirm:true});message(result,t('resetSaved'));}
+    catch (e) {message(result,t((e as Error).message),true);}
+    finally {button.disabled=false;}
+};
 let chartsLoaded = false, updatesLoaded = false, chartAttempt = 0, updateAttempt = 0;
 async function charts() { if (chartsLoaded)
     return; try {

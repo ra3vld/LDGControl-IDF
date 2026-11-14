@@ -191,8 +191,29 @@ void route_failure_is_partial_and_does_not_switch_back() {
     TEST_ASSERT_EQUAL(int(Result::Failed), int(sw.state().result));
     TEST_ASSERT_EQUAL(1, r.antenna);
 }
+void bypass_preserves_controlled_and_manual_choice_can_exit() {
+    Rig r;
+    r.run(2000);
+    r.request(TUNER_CMD_CONTROLLED_MODE);
+    r.run(1200);
+    TEST_ASSERT_TRUE(r.c.state(r.now).tuningManaged);
+    auto id = r.request('P');
+    r.run(1200);
+    TEST_ASSERT_EQUAL(int(Result::Success), int(r.c.operations().find(id)->result));
+    TEST_ASSERT_EQUAL(MODE_BYPASS, r.c.state(r.now).mode);
+    TEST_ASSERT_TRUE(r.c.state(r.now).tuningManaged);
+    const auto exit = r.c.state(r.now).tuningManaged ? TUNER_CMD_CONTROLLED_MODE : TUNER_CMD_AUTO_MODE;
+    r.request(exit);
+    r.run(1200);
+    TEST_ASSERT_TRUE(r.c.state(r.now).tuningManaged);
+    TEST_ASSERT_EQUAL(MODE_MANUAL, r.c.state(r.now).mode);
+    r.request('M');
+    r.run(1200);
+    TEST_ASSERT_FALSE(r.c.state(r.now).tuningManaged);
+}
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(bypass_preserves_controlled_and_manual_choice_can_exit);
     RUN_TEST(route_failure_is_partial_and_does_not_switch_back);
     RUN_TEST(startup_restores_original_port);
     RUN_TEST(rf_interrupts_probe_then_zero_restores);

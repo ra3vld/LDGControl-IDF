@@ -21,7 +21,10 @@ struct Config {
     int8_t uartRx = -1, uartTx = -1;
     uint8_t displayView = 0; // Legacy schema-1 byte; ignored by the numeric display.
 };
+Config defaultSettings();
 void settingsInit();
+ldg::Result saveConnectionSettings(JsonVariantConst, bool& restart);
+ldg::Result resetSettings();
 Config settings();
 bool trySettings(Config &);
 ldg::Result saveSettings(const char *section, JsonVariantConst input, uint32_t expected,

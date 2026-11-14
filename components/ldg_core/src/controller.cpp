@@ -308,7 +308,7 @@ void Controller::tick(uint32_t now) {
                 tuning_.antennaSelected();
             }
             if (result == Result::Success &&
-                (cmd == 'C' || cmd == 'M' || cmd == 'P' || cmd == 0x83)) {
+                (cmd == 'C' || cmd == 'M' || cmd == 0x83)) {
                 tuningSettings_.managed = cmd == 0x83;
                 managedChanged_ = true;
                 tuning_.configure(tuningSettings_);

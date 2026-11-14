@@ -8,7 +8,13 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - run: SANITIZE=1 python3 tools/test.py
+      - run: SANITIZE=1 python3 tools/test_adapters.py
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
       - run: python3 tools/build_web.py build-web/generated
+      - run: node tools/test_web.mjs
+      - run: python3 tests/test_web_flasher.py
   firmware:
     strategy:
       fail-fast: false
@@ -21,10 +27,11 @@ jobs:
       - shell: bash
         run: |
           . "$IDF_PATH/export.sh"
+          python -m pip install -r tools/idf-requirements.txt
           python tools/build.py --board '${{ matrix.board }}'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: firmware-${{ matrix.board }}
+          name: build-${{ matrix.board }}
           path: |
             build-${{ matrix.board }}/ldgcontrol.bin
             build-${{ matrix.board }}/ldgcontrol.elf
@@ -34,4 +41,29 @@ jobs:
             build-${{ matrix.board }}/partition_table/partition-table.bin
             build-${{ matrix.board }}/ota_data_initial.bin
             build-${{ matrix.board }}/flash_args
+            build-${{ matrix.board }}/flasher_args.json
             build-${{ matrix.board }}/generated/web-assets.json
+
+  website:
+    needs: [core, firmware]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: build-*
+          path: artifacts
+      - run: npm ci --prefix web-flasher --ignore-scripts --no-audit --no-fund
+      - run: node tools/build_web_flasher.mjs dist/web-flasher --build-root artifacts
+      - run: npm ci --prefix web --ignore-scripts --no-audit --no-fund
+      - run: npx --prefix web-flasher playwright install --with-deps chromium
+      - run: PLAYWRIGHT_MODULE=../web-flasher/node_modules/playwright CHROMIUM_PATH='' WEB_FLASHER_SITE=dist/web-flasher node tests/browser_flasher.cjs
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: web-flasher-site
+          path: dist/web-flasher
+          if-no-files-found: error

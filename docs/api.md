@@ -18,7 +18,10 @@ messages; the web interface defaults to English.
 | GET `commands/<UUID>` | The same operation after a connection loss |
 | DELETE `commands/<UUID>` | Cancel an unstarted command; a started command returns 409 |
 | GET/POST `config/<section>` | Read or partially update a section using its revision |
-| GET `diagnostics` | Detailed diagnostics on request |
+| GET `diagnostics` | Running image identity, heap/stacks, MQTT and LCD diagnostics |
+| GET `mqtt` | Compact MQTT/TLS status and last error codes |
+| POST/GET `network/scan` | Start asynchronous Wi-Fi discovery (`202`) / read stage and up to 12 networks |
+| POST `reset` | `{ "confirm": true }`: restore defaults, retire legacy credentials and restart |
 | POST `mqtt/reconnect` | Request orderly MQTT shutdown and reconnection |
 | POST `restart` | Respond, then reboot |
 | GET `update` | Stage, error, bytes, total size and active flag |
@@ -105,3 +108,25 @@ The form stays populated so the user can correct it and retry.
 ![A save error on a mobile screen](screenshots/web-error-en.png)
 
 See the [interface guide](interface.md) for the corresponding user actions.
+
+## USB API 1
+
+The physical UART0 console uses 115200 baud, newline-delimited JSON and `ldg: 1`.
+It is independent of HTTP API v2 and is never forwarded to LDG. Each client starts
+with `hello` and a random 32-character hexadecimal `client`. Replies contain
+`boot` (16 hexadecimal characters), `sid`, `cid` and HTTP-like `status`.
+Subsequent `settings`, `apply` and `reboot` requests include `boot`, `sid` and a
+strictly increasing `cid`. An exact retry returns the cached reply without
+executing again; changed bodies or old sessions return 409. Maximum line length
+is 1536 bytes. Settings replies expose only password-presence flags.
+
+`apply` accepts `settings` with `wifiSSID`, `wifiPassword`, `clearWifiPassword`,
+`mqttBroker`, `mqttPort`, `mqttUsername`, `mqttPassword`, `clearMqttPassword`,
+`mqttDiscoveryEnabled`, `useStaticIP`, `staticIP`, `staticNetmask`,
+`staticGateway` and `staticDNS`. Empty passwords preserve stored values; the
+explicit clear flags delete them. Unknown keys and invalid types are rejected.
+See [USB setup](usb-setup.md) for the browser flow and recovery actions.
+
+HTTP `state` also includes `antenna_names` and the physical `tuner_mode`; `mode`
+continues to describe the effective mode, including CONTROLLED. Network and MQTT
+configuration accept `clear_password: true` to explicitly delete a stored secret.

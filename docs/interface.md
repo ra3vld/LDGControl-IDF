@@ -14,7 +14,7 @@ the current page; the next visit starts in English.
 
 The main page shows FWD, REF, SWR, the band, operating mode, antenna and TCI
 frequency. MEM TUNE and FULL TUNE start different tuning operations. ANT1/ANT2
-select a named port. Pressing BYPASS again returns to AUTO.
+select a named port. BYPASS preserves CONTROLLED; pressing it again returns to CONTROLLED when enabled, otherwise AUTO.
 
 A command is first accepted and then reports its result. When a result is unknown,
 check the tuner state before sending a new command. Missing readings appear as
@@ -24,7 +24,7 @@ dashes rather than zero power.
 
 The screenshots use example telemetry. Charts are at the bottom of the main page.
 They retain 30 minutes in the browser and show power, SWR and mode/antenna/band
-changes. **TX time only** skips receive pauses. Switching this recording mode
+changes. **TX time only** uses fresh TCI TRX/TUNE, including zero-power SSB pauses, and falls back to fresh positive LDG power without known TCI state. Receive pauses are skipped; separate transmissions have separate graph segments. Switching this recording mode
 starts a new history. Charts load in the background; if loading fails, their
 **Retry** button reloads them while controls stay available.
 
@@ -35,6 +35,9 @@ Controls rearrange into two columns on a narrow screen.
 <img src="screenshots/web-mobile-en.png" alt="Mobile tuner controls" width="390">
 
 ## Settings
+
+See [USB setup and recovery](usb-setup.md) for account linking, local `.local`
+addresses, Wi-Fi scanning, explicit password deletion and resetting settings.
 
 Open only the sections you need. Wi-Fi, MQTT, TCI, a remote tuner and the external
 switch are independent options and can remain disabled. Saving settings reports

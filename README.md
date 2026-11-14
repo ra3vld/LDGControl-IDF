@@ -55,6 +55,11 @@ for high-SWR readings and the firmware update screen.
 Check the board marking and memory capacity before installation. Wiring:
 [boards and UART](docs/hardware.md).
 
+### USB installation and setup
+
+[USB installer, rotator.r3v.ru linking and MQTT TLS diagnostics](docs/usb-setup.md).
+USB setup is optional; Wi-Fi, a private broker and the local access point work independently.
+
 ### Build
 
 Install Python 3.12+, Git and the ESP-IDF system build dependencies. From the
@@ -76,6 +81,7 @@ python tools/bootstrap.py --board sunton --sdk-dir C:\idf-5.5.5
 With an existing ESP-IDF 5.5.5 installation and its environment activated:
 
 ```sh
+python -m pip install -r tools/idf-requirements.txt
 python tools/build.py --board sunton
 ```
 
@@ -103,7 +109,7 @@ preserving settings. Subsequent updates use OTA.
    and enter the address of a controller with the same API version. Both devices
    must use matching Basic Auth credentials. Remote-panel chains are not supported.
 
-Pressing BYPASS again returns to AUTO. ANT1/ANT2 select a named port rather than
+BYPASS preserves CONTROLLED; pressing it again returns to CONTROLLED when enabled, otherwise AUTO. ANT1/ANT2 select a named port rather than
 blindly toggling it. Unknown readings appear as dashes. Software cancellation
 cannot stop a physical tuning operation that has already started.
 
@@ -204,6 +210,11 @@ Additional attribution and component licenses: [NOTICE](NOTICE).
 Сверьте маркировку и объём памяти платы перед установкой. Подключения:
 [платы и UART](docs/hardware.ru.md).
 
+### Установка и настройка по USB
+
+[USB-прошивальщик, привязка rotator.r3v.ru и диагностика MQTT TLS](docs/usb-setup.ru.md).
+Настройка USB необязательна; Wi-Fi, свой брокер и локальная точка доступа работают независимо.
+
 ### Сборка
 
 Нужны Python 3.12+, Git и системные зависимости сборки ESP-IDF. Из каталога проекта:
@@ -224,6 +235,7 @@ python tools/bootstrap.py --board sunton --sdk-dir C:\idf-5.5.5
 Если ESP-IDF 5.5.5 уже установлен и его окружение активировано:
 
 ```sh
+python -m pip install -r tools/idf-requirements.txt
 python tools/build.py --board sunton
 ```
 
@@ -250,7 +262,7 @@ idf.py -B build-sunton -p PORT flash monitor
    и укажите адрес контроллера с этой же версией API. Данные Basic Auth на обоих
    устройствах должны совпадать. Цепочки удалённых панелей не поддерживаются.
 
-Повторное нажатие BYPASS возвращает AUTO. ANT1/ANT2 — именованный выбор порта;
+BYPASS сохраняет CONTROLLED; повторное нажатие возвращает CONTROLLED, если он включён, иначе AUTO. ANT1/ANT2 — именованный выбор порта;
 кнопка не означает безусловное переключение. Неизвестные измерения показаны
 прочерками. Начатую физическую настройку нельзя остановить программной отменой.
 

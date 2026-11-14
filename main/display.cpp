@@ -10,6 +10,8 @@
 #include "driver/ledc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "driver/gpio.h"
 #include "esp_random.h"
 #include "esp_netif.h"
 #include "mqtt_protocol.h"
@@ -35,21 +37,41 @@ static constexpr uint32_t border = 0x294156, surface = 0x101e2b, modeSurface = 0
 static i2c_master_dev_handle_t touch;
 static i2c_master_bus_handle_t touchBus;
 static ldg::BrightnessControl brightness;
-static unsigned touchFailures = 0;
+static std::atomic<unsigned> touchFailures{0};
 static uint32_t touchProbeAt = 0;
 static uint32_t updateAt = 0, frameAt = 0, toastAt = 0, lastTouch = 0;
 static int width = 480, height = 320;
-static bool ready = false, pressed = false;
+static std::atomic<bool> ready{false};
+static bool pressed=false;
+static std::atomic<bool> pwmReady{false};
+static std::atomic<uint32_t> lcdFrames{0},sentPixels{0},serviceUs{0},maxServiceUs{0},flushUs{0},flushStarted{0};
+static std::atomic<unsigned> appliedBrightness{100};
 static int touchX = 0, touchY = 0;
 static uint8_t rotation = 0;
 static ldg::Id pending{};
 static bool commandPending = false;
+void lcdDiagnostics(JsonObject out) {
+    out["supported"]=true;out["ready"]=ready.load();
+    out["width"]=480;
+#if LDG_BOARD_guition
+    out["height"]=480;
+#else
+    out["height"]=320;
+#endif
+    out["frames"]=lcdFrames.load();out["sent_pixels"]=sentPixels.load();
+    out["service_us"]=serviceUs.load();out["max_service_us"]=maxServiceUs.load();
+    out["flush_us"]=flushUs.load();out["touch_errors"]=touchFailures.load();
+    out["backlight_active"]=pwmReady.load();out["brightness"]=appliedBrightness.load();
+}
 [[maybe_unused]] static bool flushDone(esp_lcd_panel_io_handle_t, esp_lcd_panel_io_event_data_t *,
                                        void *context) {
+    flushUs=uint32_t(esp_timer_get_time())-flushStarted.load();
     lv_display_flush_ready(static_cast<lv_display_t *>(context));
     return false;
 }
 static void flush(lv_display_t *d, const lv_area_t *area, uint8_t *pixels) {
+    flushStarted=uint32_t(esp_timer_get_time());
+    sentPixels.fetch_add((area->x2-area->x1+1)*(area->y2-area->y1+1));
 #if LDG_BOARD_sunton
     lv_draw_sw_rgb565_swap(pixels, (area->x2 - area->x1 + 1) * (area->y2 - area->y1 + 1));
 #endif
@@ -57,8 +79,10 @@ static void flush(lv_display_t *d, const lv_area_t *area, uint8_t *pixels) {
         ESP_OK)
         lv_display_flush_ready(d);
 #if LDG_BOARD_guition
-    else
+    else {
+        flushUs=uint32_t(esp_timer_get_time())-flushStarted.load();
         lv_display_flush_ready(d);
+    }
 #endif
 }
 static bool readReg(uint16_t reg, uint8_t *bytes, size_t size) {
@@ -420,14 +444,15 @@ void startDisplay() {
     timer.duty_resolution = LEDC_TIMER_10_BIT;
     timer.freq_hz = 5000;
     timer.clk_cfg = LEDC_AUTO_CLK;
-    ledc_timer_config(&timer);
+    const bool timerReady=ledc_timer_config(&timer)==ESP_OK;
     ledc_channel_config_t channel{};
     channel.gpio_num = backlight;
     channel.speed_mode = LEDC_LOW_SPEED_MODE;
     channel.channel = LEDC_CHANNEL_0;
     channel.timer_sel = LEDC_TIMER_0;
     channel.duty = 1023;
-    ledc_channel_config(&channel);
+    pwmReady=timerReady && ledc_channel_config(&channel)==ESP_OK;
+    if (!pwmReady) {gpio_set_direction(gpio_num_t(backlight),GPIO_MODE_OUTPUT);gpio_set_level(gpio_num_t(backlight),1);}
     i2c_master_bus_config_t busConfig{};
     busConfig.i2c_port = I2C_NUM_0;
     busConfig.sda_io_num = static_cast<gpio_num_t>(sda);
@@ -542,9 +567,12 @@ void displayService() {
             changedLabel(sourceLabel, "%s", displayAddress());
             changedLabel(status, "ANT: %s", ldg::antennaInitName(s.tuner.antennaInit));
             changedLabel(scaleLabel, "%u W%s", unsigned(c.meter.watts), c.meter.logarithmic ? " LOG" : "");
-            ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0,
-                          brightness.update(c.brightness, lightRaw.load()) * 1023 / 100);
-            ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+            appliedBrightness=pwmReady?brightness.update(c.brightness,lightRaw.load()):100;
+            if (pwmReady) {
+                ledc_set_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0,appliedBrightness.load()*1023/100);
+                ledc_update_duty(LEDC_LOW_SPEED_MODE,LEDC_CHANNEL_0);
+            }
+            ++lcdFrames;
         }
         if (commandPending) {
             ldg::Operation op;
@@ -558,11 +586,15 @@ void displayService() {
             lv_obj_set_hidden(status, false);
         }
     }
+    const uint32_t start=uint32_t(esp_timer_get_time());
     lv_timer_handler();
+    const uint32_t duration=uint32_t(esp_timer_get_time())-start;
+    serviceUs=duration;if (duration>maxServiceUs) maxServiceUs=duration;
 }
 } // namespace app
 #else
 namespace app {
+void lcdDiagnostics(JsonObject out) {out["supported"]=false;out["ready"]=false;}
 void startDisplay() {}
 void displayService() {}
 void displayUpdateState(const char *, unsigned) {}

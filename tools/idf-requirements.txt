@@ -1,0 +1,1 @@
+idf-component-manager==2.4.2

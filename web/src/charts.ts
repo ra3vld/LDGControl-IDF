@@ -1,39 +1,15 @@
 import { t, type State } from './main.js';
-type Sample = {
-    x: number;
-    state: State;
-};
+import { History } from './history.js';
 export function start(subscribe: (callback: (s: State, at: number) => void) => void) {
     const canvas = document.getElementById('chart') as HTMLCanvasElement, context = canvas.getContext('2d')!;
     const checkbox = document.getElementById('tx-only') as HTMLInputElement;
     const styles = getComputedStyle(canvas);
     const color = (name: string) => styles.getPropertyValue(name).trim();
     const palette = { background: color('--background'), foreground: color('--foreground'), muted: color('--muted'), border: color('--border'), forward: color('--cyan'), reflected: color('--amber'), positive: color('--mint') };
-    let samples: Sample[] = [], lastAt = 0, elapsed = 0, token = '', dirty = true, wasTransmitting = false;
-    checkbox.onchange = () => { samples = []; lastAt = 0; elapsed = 0; dirty = true; };
-    subscribe((s, at) => {
-        if (s.source_token !== token) {
-            samples = [];
-            lastAt = 0;
-            elapsed = 0;
-            token = s.source_token;
-        }
-        const transmitting = s.connected && s.fwd_power != null && s.fwd_power > 0;
-        if (checkbox.checked) {
-            if (lastAt && transmitting && wasTransmitting && at - lastAt < 3000)
-                elapsed += at - lastAt;
-            lastAt = at;
-            wasTransmitting = transmitting;
-            if (!transmitting)
-                return;
-        }
-        else
-            elapsed = at;
-        samples.push({ x: elapsed, state: s });
-        while (samples.length && samples[0].x < elapsed - 1800000)
-            samples.shift();
-        dirty = true;
-    });
+    const history = new History();
+    let dirty = true;
+    checkbox.onchange = () => { history.reset(checkbox.checked); dirty = true; };
+    subscribe((state, wall) => { history.add(state, wall); dirty = true; });
     const resize = new ResizeObserver(() => dirty = true);
     resize.observe(canvas);
     document.addEventListener('ldg-language-change', () => { dirty = true; });
@@ -41,6 +17,7 @@ export function start(subscribe: (callback: (s: State, at: number) => void) => v
         if (!dirty || !canvas.clientWidth)
             return;
         dirty = false;
+        const { samples, elapsed } = history;
         const ratio = devicePixelRatio || 1, w = canvas.clientWidth, h = 300;
         canvas.width = w * ratio;
         canvas.height = h * ratio;
@@ -69,8 +46,8 @@ export function start(subscribe: (callback: (s: State, at: number) => void) => v
         }
         // Preserve extrema per horizontal pixel instead of dropping peaks.
         for (const [key, color, scale] of [['fwd_power', palette.forward, maximum], ['ref_power', palette.reflected, maximum], ['swr', palette.foreground, 10]] as const) {
-            const buckets = new Map<number, {
-                min: number;
+            const buckets = new Map<string, {
+                x: number; segment: number; min: number;
                 max: number;
             }>();
             for (const sample of samples) {
@@ -80,19 +57,20 @@ export function start(subscribe: (callback: (s: State, at: number) => void) => v
                 const x = Math.round(left + (sample.x - start) / 1800000 * (right - left));
                 const normalized = key === 'swr' ? (v - 1) / 9 : v / scale;
                 const y = bottom - Math.min(1, Math.max(0, normalized)) * (bottom - top);
-                const old = buckets.get(x);
-                buckets.set(x, { min: Math.min(old?.min ?? y, y), max: Math.max(old?.max ?? y, y) });
+                const bucket = `${sample.segment}:${x}`, old = buckets.get(bucket);
+                buckets.set(bucket, { x, segment: sample.segment, min: Math.min(old?.min ?? y, y), max: Math.max(old?.max ?? y, y) });
             }
             context.strokeStyle = color;
             context.beginPath();
-            let previous = -100;
-            for (const [x, b] of buckets) {
-                if (x - previous > 2)
+            let previous = -100, segment = -1;
+            for (const b of buckets.values()) {
+                const x = b.x;
+                if (b.segment !== segment || x - previous > 2)
                     context.moveTo(x, b.min);
                 else
                     context.lineTo(x, b.min);
                 context.lineTo(x, b.max);
-                previous = x;
+                previous = x; segment = b.segment;
             }
             context.stroke();
         }

@@ -231,6 +231,7 @@ static void api(httpd_req_t *req) {
         stateJson(out, snapshot());
         json(req, out);
     } else if (!strcmp(path, "/api/v2/capabilities")) {
+        deviceIdentity(out);
         out["api_version"] = 2;
         out["firmware"] = esp_app_get_description()->version;
 #if LDG_BOARD_sunton
@@ -355,9 +356,24 @@ static void api(httpd_req_t *req) {
         snprintf(base, sizeof(base), "ldg/tuner/%s", identity);
         out["device_id"] = identity;
         out["mqtt_base_topic"] = base;
+        deviceIdentity(out);
+        networkDiagnostics(out["mqtt"].to<JsonObject>());
+        lcdDiagnostics(out["lcd"].to<JsonObject>());
         out["reset_reason"] = esp_reset_reason();
         out["uptime_ms"] = nowMs();
         json(req, out);
+    } else if (!strcmp(path, "/api/v2/mqtt")) {
+        networkDiagnostics(out.to<JsonObject>());json(req,out);
+    } else if (!strcmp(path, "/api/v2/network/scan")) {
+        if (req->method==HTTP_POST && !requestWifiScan()) {error(req,409,"busy");return;}
+        wifiScanJson(out);json(req,out,req->method==HTTP_POST?"202 Accepted":"200 OK");
+    } else if (!strcmp(path, "/api/v2/reset") && req->method==HTTP_POST) {
+        if (input.doc["confirm"]!=true) {error(req,400,"confirmation_required");return;}
+        holdMaintenance();
+        if (!maintenanceSafe()) {error(req,409,"busy");return;}
+        const auto result=resetSettings();
+        if (result!=ldg::Result::Success) {error(req,500,"settings_save_failed");return;}
+        out["accepted"]=true;json(req,out);scheduleRestart();
     } else if (!strcmp(path, "/api/v2/mqtt/reconnect") && req->method == HTTP_POST) {
         ++mqttReconnect;
         out["accepted"] = true;

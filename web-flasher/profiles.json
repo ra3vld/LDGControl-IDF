@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "profiles": [
+    {
+      "id": "sunton",
+      "title": "Sunton ESP32-3248S035C",
+      "role": "Tuner controller with ST7796 display and GT911 touch",
+      "docs": "docs/hardware.md#sunton-esp32-3248s035c",
+      "photo": "sunton"
+    },
+    {
+      "id": "headless",
+      "title": "ESP32 without display",
+      "role": "Tuner controller with a web interface",
+      "docs": "docs/hardware.md",
+      "photo": "esp32"
+    },
+    {
+      "id": "guition",
+      "title": "Guition ESP32-4848S040",
+      "role": "Tuner controller or remote panel, 480\u00d7480",
+      "docs": "docs/hardware.md#guition-esp32-4848s040"
+    }
+  ]
+}

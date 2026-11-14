@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "settings.hpp"
 #include "config_store.h"
+#include "connection_config.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
@@ -8,6 +9,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include <cstring>
+#include <memory>
+#include <new>
 namespace app {
 static Config current;
 static SemaphoreHandle_t mutex;
@@ -22,21 +25,26 @@ struct Storage {
         return nvs_get_blob(handle, k, p, &n) == ESP_OK ? n : 0;
     }
 };
+Config defaultSettings() {
+    Config value;
+    strcpy(value.device.webUsername, "admin");
+    strcpy(value.device.webPassword, "change_me_please");
+    strcpy(value.device.ant1Name, "ANT 1");
+    strcpy(value.device.ant2Name, "ANT 2");
+    value.device.meterPsuVoltage = 13.8f;
+    value.device.mqttPort = 1883;
+#if LDG_BOARD_sunton
+    value.uartRx = 35;
+    value.uartTx = 22;
+#elif LDG_BOARD_headless
+    value.uartRx = 16;
+    value.uartTx = 17;
+#endif
+    return value;
+}
 void settingsInit() {
     mutex = xSemaphoreCreateMutex();
-    strcpy(current.device.webUsername, "admin");
-    strcpy(current.device.webPassword, "change_me_please");
-    strcpy(current.device.ant1Name, "ANT 1");
-    strcpy(current.device.ant2Name, "ANT 2");
-    current.device.meterPsuVoltage = 13.8f;
-    current.device.mqttPort = 1883;
-#if LDG_BOARD_sunton
-    current.uartRx = 35;
-    current.uartTx = 22;
-#elif LDG_BOARD_headless
-    current.uartRx = 16;
-    current.uartTx = 17;
-#endif
+    current = defaultSettings();
     // Never erase NVS to make an initialization error disappear.
     esp_err_t err = nvs_flash_init();
     if (err != ESP_OK) {
@@ -139,7 +147,7 @@ static bool text(JsonVariantConst v, char *out, size_t n, bool secret = false) {
     if (!v.is<const char *>())
         return false;
     const char *s = v.as<const char *>();
-    if (strlen(s) >= n)
+    if (strlen(s) >= n || v.as<JsonString>().size() != strlen(s) || !ldg::validConfigText(s))
         return false;
     if (!secret || s[0])
         strcpy(out, s);
@@ -176,11 +184,33 @@ static bool commit(Config &next) {
         err = nvs_set_blob(h, "config", &next, sizeof(next));
         if (err == ESP_OK)
             err = nvs_commit(h);
+        if (err == ESP_OK) {
+            // Allocate only for the transaction, rather than increasing every
+            // HTTP/USB task stack by another complete configuration.
+            std::unique_ptr<Config> readback(new(std::nothrow) Config);
+            size_t bytes = sizeof(Config);
+            err = readback ? nvs_get_blob(h,"config",readback.get(),&bytes) : ESP_FAIL;
+            if (err == ESP_OK && (bytes != sizeof(next) || memcmp(readback.get(), &next, sizeof(next))))
+                err = ESP_FAIL;
+        }
         nvs_close(h);
     }
     if (err == ESP_OK)
         current = next;
     return err == ESP_OK;
+}
+// Explicit secret deletion also retires the migration backup. The native blob
+// is committed first so older credentials cannot be imported after power loss.
+static bool purgeLegacy() {
+    nvs_handle_t old;
+    const auto err=nvs_open("ldg-config",NVS_READWRITE,&old);
+    if (err==ESP_ERR_NVS_NOT_FOUND) return true;
+    if (err!=ESP_OK) return false;
+    const bool ok=nvs_erase_all(old)==ESP_OK && nvs_commit(old)==ESP_OK;
+    nvs_close(old);return ok;
+}
+static bool finishSave(Config& next,bool clearLegacy) {
+    return commit(next) && (!clearLegacy || purgeLegacy());
 }
 bool persistManaged(bool value) {
     xSemaphoreTake(mutex, portMAX_DELAY);
@@ -215,6 +245,16 @@ ldg::Result saveSettings(const char *section, JsonVariantConst in, uint32_t expe
     if (!strcmp(section, "network")) {
         STR("ssid", d.wifiSSID);
         SECRET("password", d.wifiPassword);
+        if (!in["clear_password"].isUnbound()) {
+            valid &= in["clear_password"].is<bool>();
+            if (in["clear_password"] == true) d.wifiPassword[0] = 0;
+        }
+        if (!in["ssid"].isUnbound() || !in["password"].isUnbound() || in["clear_password"] == true) {
+            const size_t n = strlen(d.wifiPassword);
+            valid &= !n || (n >= 8 && n <= 64);
+            if (n == 64) for (const char* p = d.wifiPassword; *p; ++p)
+                valid &= (*p >= '0' && *p <= '9') || (*p >= 'a' && *p <= 'f') || (*p >= 'A' && *p <= 'F');
+        }
         BOOL("static", d.useStaticIP);
         STR("ip", d.staticIP);
         STR("netmask", d.staticNetmask);
@@ -227,6 +267,12 @@ ldg::Result saveSettings(const char *section, JsonVariantConst in, uint32_t expe
         NUM("port", d.mqttPort, 1, 65535);
         STR("username", d.mqttUsername);
         SECRET("password", d.mqttPassword);
+        if (!in["clear_password"].isUnbound()) {
+            valid &= in["clear_password"].is<bool>();
+            if (in["clear_password"] == true) d.mqttPassword[0] = 0;
+        }
+        for (const char* p = d.mqttBroker; *p; ++p)
+            valid &= uint8_t(*p) > 32 && uint8_t(*p) < 127 && !strchr("/#+@", *p);
         BOOL("discovery", d.mqttDiscoveryEnabled);
         if (next.mqttEnabled && !d.mqttBroker[0])
             valid = false;
@@ -331,13 +377,53 @@ ldg::Result saveSettings(const char *section, JsonVariantConst in, uint32_t expe
         xSemaphoreGive(mutex);
         return ldg::Result::Invalid;
     }
+    const bool clearLegacy = (!strcmp(section,"network") || !strcmp(section,"mqtt")) && in["clear_password"]==true;
     if (!memcmp(&next, &current, sizeof(next))) {
-        xSemaphoreGive(mutex);
-        return ldg::Result::Success;
+        const bool ok = !clearLegacy || finishSave(next,true);
+        xSemaphoreGive(mutex);return ok ? ldg::Result::Success : ldg::Result::Failed;
     }
     ++next.revision;
     ++next.sectionRevision[sectionId];
-    bool ok = commit(next);
+    bool ok = finishSave(next,clearLegacy);
+    xSemaphoreGive(mutex);
+    return ok ? ldg::Result::Success : ldg::Result::Failed;
+}
+ldg::Result saveConnectionSettings(JsonVariantConst patch, bool& restart) {
+    static const char* allowed[] = {"wifiSSID","wifiPassword","clearWifiPassword","mqttBroker",
+        "mqttPort","mqttUsername","mqttPassword","clearMqttPassword","mqttDiscoveryEnabled",
+        "useStaticIP","staticIP","staticNetmask","staticGateway","staticDNS"};
+    if (!patch.is<JsonObjectConst>()) return ldg::Result::Invalid;
+    for (JsonPairConst pair : patch.as<JsonObjectConst>()) {
+        bool known = false;
+        for (const char* key : allowed) if (!strcmp(pair.key().c_str(), key)) known = true;
+        if (!known) return ldg::Result::Invalid;
+    }
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    Config next = current;
+    if (!ldg::patchConnectionConfig(patch, next.device, true)) {
+        xSemaphoreGive(mutex); return ldg::Result::Invalid;
+    }
+    next.mqttEnabled = next.device.mqttBroker[0] != 0;
+    restart = ldg::networkSettingsChanged(current.device, next.device);
+    const bool clearLegacy=patch["clearWifiPassword"]==true || patch["clearMqttPassword"]==true;
+    if (!memcmp(&next, &current, sizeof(next))) {
+        const bool ok=!clearLegacy || finishSave(next,true);
+        xSemaphoreGive(mutex);return ok ? ldg::Result::Success : ldg::Result::Failed;
+    }
+    if (restart) ++next.sectionRevision[0];
+    if (ldg::mqttSettingsChanged(current.device, next.device) || next.mqttEnabled != current.mqttEnabled)
+        ++next.sectionRevision[1];
+    ++next.revision;
+    const bool ok = finishSave(next,clearLegacy);
+    xSemaphoreGive(mutex);
+    return ok ? ldg::Result::Success : ldg::Result::Failed;
+}
+ldg::Result resetSettings() {
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    auto next = defaultSettings();
+    next.revision = current.revision + 1;
+    for (unsigned i = 0; i < 9; ++i) next.sectionRevision[i] = current.sectionRevision[i] + 1;
+    const bool ok=finishSave(next,true);
     xSemaphoreGive(mutex);
     return ok ? ldg::Result::Success : ldg::Result::Failed;
 }

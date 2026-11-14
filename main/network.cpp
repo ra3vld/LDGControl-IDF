@@ -3,6 +3,10 @@
 #include "json.hpp"
 #include "mqtt_protocol.h"
 #include "mqtt_readings.h"
+#include "mqtt_health.hpp"
+#include "managed_mqtt_ca.h"
+#include "mdns.h"
+#include "esp_err.h"
 #include "tci_protocol.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -20,6 +24,85 @@
 #include <new>
 namespace app {
 static esp_netif_t *station;
+static ldg::MqttHealth health;
+static portMUX_TYPE healthMutex=portMUX_INITIALIZER_UNLOCKED;
+template<class F> static void updateHealth(F change) {
+    portENTER_CRITICAL(&healthMutex); change(health); portEXIT_CRITICAL(&healthMutex);
+}
+static ldg::MqttHealth healthSnapshot() {
+    portENTER_CRITICAL(&healthMutex);const auto value=health;portEXIT_CRITICAL(&healthMutex);return value;
+}
+#if LDG_BOARD_headless
+static const char* hostname="ldgcontrol-remote";
+#else
+static const char* hostname="ldgcontrol-display";
+#endif
+static std::atomic<bool> mdnsReady{false};
+struct ScanEntry {char ssid[33]{};int rssi=0;bool secure=false;};
+static ScanEntry scanEntries[12];
+static unsigned scanCount=0;
+static std::atomic<int> scanStage{0};
+static std::atomic<bool> scanDone{false};
+static std::atomic<uint32_t> scanRequestedAt{0};
+static const char* scanError="";
+static portMUX_TYPE scanMutex=portMUX_INITIALIZER_UNLOCKED;
+bool requestWifiScan() {
+    int old=scanStage.load();
+    if (updating || old==1 || old==2) return false;
+    scanRequestedAt=nowMs(); // Publish the deadline before the worker sees waiting.
+    return scanStage.compare_exchange_strong(old,1);
+}
+void wifiScanJson(JsonDocument& out) {
+    static const char* names[]={"idle","waiting","scanning","complete","error"};
+    out["stage"]=names[scanStage.load()];
+    portENTER_CRITICAL(&scanMutex);
+    ScanEntry entries[12];const auto count=scanCount;const auto error=scanError;
+    memcpy(entries,scanEntries,sizeof(entries));
+    portEXIT_CRITICAL(&scanMutex);
+    out["error"]=error;auto list=out["networks"].to<JsonArray>();
+    for (unsigned i=0;i<count;++i) {auto n=list.add<JsonObject>();n["ssid"]=entries[i].ssid;n["rssi"]=entries[i].rssi;n["secure"]=entries[i].secure;}
+}
+static void serviceScan() {
+    if ((scanStage==1 || scanStage==2) && nowMs()-scanRequestedAt.load()>30000) {
+        if (scanStage==2) {esp_wifi_scan_stop();esp_wifi_clear_ap_list();}
+        portENTER_CRITICAL(&scanMutex);scanError="scan_timeout";scanCount=0;portEXIT_CRITICAL(&scanMutex);
+        scanStage=4;
+    }
+    if (scanStage==1 && !updating && !usbMaintenance() && strcmp(healthSnapshot().state,"connecting")) {
+        wifi_scan_config_t config{};config.show_hidden=false;
+        config.scan_time.active.min=40;config.scan_time.active.max=120;
+        scanDone=false;
+        const auto error=esp_wifi_scan_start(&config,false);
+        portENTER_CRITICAL(&scanMutex);scanError=error==ESP_OK ? "" : esp_err_to_name(error);portEXIT_CRITICAL(&scanMutex);
+        scanStage=error==ESP_OK ? 2 : 4;
+    }
+    if (scanStage==2 && scanDone.exchange(false)) {
+        wifi_ap_record_t records[12];uint16_t n=12;
+        const auto result=esp_wifi_scan_get_ap_records(&n,records);
+        portENTER_CRITICAL(&scanMutex);
+        scanCount=result==ESP_OK?n:0;scanError=result==ESP_OK?"":esp_err_to_name(result);
+        for (unsigned i=0;i<scanCount;++i) {memcpy(scanEntries[i].ssid,records[i].ssid,32);scanEntries[i].ssid[32]=0;scanEntries[i].rssi=records[i].rssi;scanEntries[i].secure=records[i].authmode!=WIFI_AUTH_OPEN;}
+        portEXIT_CRITICAL(&scanMutex);
+        scanStage=result==ESP_OK?3:4;
+    }
+}
+void networkDiagnostics(JsonObject out) {
+    const auto h=healthSnapshot();const auto now=nowMs();
+    out["state"]=h.state;out["tls"]=h.tls;out["managed"]=h.managed;
+    out["error"]=h.error;out["error_active"]=h.errorActive;
+    out["attempts"]=h.attempts;out["connect_ms"]=h.connectMs;
+    out["retry_ms"]=(!strcmp(h.state,"disconnected") || !strcmp(h.state,"waiting_retry")) && now-h.attemptAt<10000 ? 10000-(now-h.attemptAt):0;
+    out["connected_ms"]=!strcmp(h.state,"connected")?now-h.connectedAt:0;
+    out["error_age_ms"]=h.errorAt?now-h.errorAt:0;
+    out["transport_error"]=h.transport;out["transport_reason"]=esp_err_to_name(h.transport);out["tls_error"]=h.tlsStack;
+    out["verify_flags"]=h.verifyFlags;out["socket_errno"]=h.socket;out["broker_code"]=h.broker;
+    out["required_free"]=h.requiredFree;out["required_largest"]=h.requiredLargest;
+    out["tls_input_bytes"]=CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN;
+    out["tls_output_bytes"]=CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN;
+    out["trust"]=!h.tls?"none":h.managed?"ISRG Root X2":"certificate_bundle";
+    out["published"]=h.published;out["publish_failures"]=h.publishFailures;
+    out["hostname"]=hostname;out["mdns"]=mdnsReady.load();
+}
 static bool stationConfigured = false;
 static std::atomic<uint32_t> wifiRetryAt{0};
 struct MqttSession {
@@ -28,7 +111,7 @@ struct MqttSession {
     char uri[100]{}, base[48]{}, statusTopic[64]{}, commandTopic[64]{};
     char input[1025]{};
     size_t inputUsed = 0;
-    std::atomic<bool> connected{false}, discovery{false};
+    std::atomic<bool> connected{false}, discovery{false}, reconnectNeeded{false};
     ldg::MqttIdentity identity;
     ldg::MqttStateSchedule schedule;
     struct Reply {
@@ -52,6 +135,7 @@ static ldg::RadioSettings tciSettings;
 static bool tciSubscribed = false;
 static uint32_t tciConnectedAt = 0;
 static void wifiEvent(void *, esp_event_base_t base, int32_t id, void *) {
+    if (base == WIFI_EVENT && id == WIFI_EVENT_SCAN_DONE) scanDone=true;
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START && stationConfigured)
         esp_wifi_connect();
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
@@ -65,15 +149,30 @@ static void wifiEvent(void *, esp_event_base_t base, int32_t id, void *) {
 static void mqttEvent(void *argument, esp_event_base_t, int32_t id, void *eventData) {
     auto &s = *static_cast<MqttSession *>(argument);
     auto e = static_cast<esp_mqtt_event_handle_t>(eventData);
+    if (id == MQTT_EVENT_BEFORE_CONNECT) {
+        updateHealth([](auto& h){++h.attempts;h.attemptAt=nowMs();h.state="connecting";});return;
+    }
     if (id == MQTT_EVENT_CONNECTED) {
+        updateHealth([](auto& h){h.connected(nowMs());});
         s.connected = true;
         s.discovery = true;
         mqttConnected = true;
         return;
     }
+    if (id == MQTT_EVENT_ERROR && e->error_handle) {
+        const auto error=*e->error_handle;
+        updateHealth([&](auto& h){
+            h.transport=error.esp_tls_last_esp_err;h.tlsStack=error.esp_tls_stack_err;
+            h.verifyFlags=error.esp_tls_cert_verify_flags;h.socket=error.esp_transport_sock_errno;
+            h.broker=error.error_type==MQTT_ERROR_TYPE_CONNECTION_REFUSED?int(error.connect_return_code):0;
+            h.failed(h.broker==4?"credentials":h.broker==5?"authorization":h.broker?"broker_refused":
+                h.verifyFlags?"tls_certificate":h.tlsStack?"tls_handshake":"transport",nowMs());
+        });
+    }
     if (id == MQTT_EVENT_DISCONNECTED || id == MQTT_EVENT_ERROR) {
-        s.connected = false;
-        mqttConnected = false;
+        s.connected=false;mqttConnected=false;
+        if (!mqttStopping) s.reconnectNeeded=true;
+        if (!mqttStopping) updateHealth([](auto& h){if (!h.errorActive) h.failed("connection_lost",nowMs());});
         return;
     }
     if (id != MQTT_EVENT_DATA || updating || e->total_data_len > 1024)
@@ -159,7 +258,9 @@ static bool publish(MqttSession &s, const char *suffix, JsonDocument &doc, bool 
     if (doc.overflowed() || measureJson(doc) >= sizeof(bytes))
         return false;
     auto n = serializeJson(doc, bytes, sizeof(bytes));
-    return esp_mqtt_client_publish(s.client, topic, bytes, n, 0, retained) >= 0;
+    const bool ok=esp_mqtt_client_publish(s.client, topic, bytes, n, 0, retained)>=0;
+    updateHealth([&](auto& h){if (ok) ++h.published;else {++h.publishFailures;h.error="publish";h.errorActive=true;h.errorAt=nowMs();}});
+    return ok;
 }
 
 static void stopMqtt() {
@@ -169,21 +270,28 @@ static void stopMqtt() {
     mqttConnected = false;
     auto *old = mqtt;
     mqtt = nullptr;
+    if (old->connected) esp_mqtt_client_publish(old->client,old->statusTopic,"offline",0,0,true);
     old->connected = false;
     esp_mqtt_client_stop(old->client);
     esp_mqtt_client_destroy(old->client);
     delete old;
     mqttAllocated = false;
     mqttStopping = false;
+    updateHealth([](auto& h){h.state="waiting_retry";h.attemptAt=nowMs();});
 }
 static void startMqtt(const Config &config) {
-    if (config.device.mqttPort == 8883 && time(nullptr) < 1700000000)
-        return;
-    if (heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 48000)
-        return;
+    const bool tls=config.device.mqttPort==8883, managed=tls && ldg::managedMqttBroker(config.device.mqttBroker);
+    const auto gate=ldg::mqttMemoryGate(tls,managed);
+    updateHealth([&](auto& h){h.tls=tls;h.managed=managed;h.requiredFree=gate.free;h.requiredLargest=gate.largest;h.attemptAt=nowMs();});
+    if (tls && time(nullptr)<1704067200) {
+        updateHealth([](auto& h){h.failed("tls_clock",nowMs());});return;
+    }
+    if (!gate.allowed(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT),
+                      heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT))) {
+        updateHealth([](auto& h){h.failed(h.tls?"tls_memory":"memory",nowMs());});return;
+    }
     auto *s = new (std::nothrow) MqttSession;
-    if (!s)
-        return;
+    if (!s) {updateHealth([](auto& h){h.failed("memory",nowMs());});return;}
     s->config = config;
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
@@ -199,31 +307,38 @@ static void startMqtt(const Config &config) {
     snprintf(s->commandTopic, sizeof(s->commandTopic), "%s/command", s->base);
     esp_mqtt_client_config_t c{};
     c.broker.address.uri = s->uri;
-    if (config.device.mqttPort == 8883)
-        c.broker.verification.crt_bundle_attach = esp_crt_bundle_attach;
+    if (managed) c.broker.verification.certificate=ldg::managedMqttCa;
+    else if (tls) c.broker.verification.crt_bundle_attach=esp_crt_bundle_attach;
     c.credentials.client_id = s->identity.node.c_str();
-    c.credentials.username = s->config.device.mqttUsername;
-    c.credentials.authentication.password = s->config.device.mqttPassword;
+    c.credentials.username = s->config.device.mqttUsername[0]?s->config.device.mqttUsername:nullptr;
+    c.credentials.authentication.password = s->config.device.mqttUsername[0]?s->config.device.mqttPassword:nullptr;
     c.session.last_will.topic = s->statusTopic;
     c.session.last_will.msg = "offline";
     c.session.last_will.retain = true;
     c.session.keepalive = 60;
     c.network.timeout_ms = 30000;
     c.network.reconnect_timeout_ms = 10000;
+    c.network.disable_auto_reconnect = true; // Reapply clock and RAM guards before every attempt.
     c.task.stack_size = 6144;
     c.task.priority = 1;
     c.buffer.size = 1024;
     c.buffer.out_size = 1024;
+    c.outbox.limit = 4096;
     s->client = esp_mqtt_client_init(&c);
     if (!s->client) {
+        updateHealth([](auto& h){h.failed("initialization",nowMs());});
         delete s;
         return;
     }
-    esp_mqtt_client_register_event(s->client, MQTT_EVENT_ANY, mqttEvent, s);
+    if (esp_mqtt_client_register_event(s->client, MQTT_EVENT_ANY, mqttEvent, s)!=ESP_OK) {
+        updateHealth([](auto& h){h.failed("initialization",nowMs());});
+        esp_mqtt_client_destroy(s->client);delete s;return;
+    }
     mqtt = s;
     mqttAllocated = true;
-    if (esp_mqtt_client_start(s->client) != ESP_OK)
-        stopMqtt();
+    if (esp_mqtt_client_start(s->client) != ESP_OK) {
+        updateHealth([](auto& h){h.failed("initialization",nowMs());});stopMqtt();
+    }
 }
 static void serviceMqtt() {
     auto *s = mqtt;
@@ -534,7 +649,7 @@ static void worker(void *) {
                      strcmp(mqtt->config.device.mqttUsername, c.device.mqttUsername) ||
                      strcmp(mqtt->config.device.mqttPassword, c.device.mqttPassword) ||
                      mqtt->config.device.mqttDiscoveryEnabled != c.device.mqttDiscoveryEnabled);
-        if (mqtt && (!c.mqttEnabled || updating || changed || reconnect != mqttReconnect)) {
+        if (mqtt && (!c.mqttEnabled || !networkUp || updating || changed || mqtt->reconnectNeeded || reconnect != mqttReconnect)) {
             stopMqtt();
             lastAttempt = nowMs();
         }
@@ -543,6 +658,12 @@ static void worker(void *) {
             lastAttempt = nowMs();
             startMqtt(c);
         }
+        if (!mqtt && c.mqttEnabled && networkUp && !updating)
+            updateHealth([](auto& h){h.state="waiting_retry";});
+        if (!c.mqttEnabled) updateHealth([](auto& h){h.state="disabled";h.errorActive=false;});
+        else if (!networkUp) updateHealth([](auto& h){h.state="waiting_wifi";});
+        else if (updating) updateHealth([](auto& h){h.state="paused";});
+        serviceScan();
         captiveDnsService();
         serviceTci(c);
         updateService();
@@ -565,7 +686,7 @@ void startNetwork() {
     auto c = settings();
     stationConfigured = c.device.wifiSSID[0];
     esp_wifi_set_storage(WIFI_STORAGE_RAM);
-    esp_wifi_set_mode(stationConfigured ? WIFI_MODE_APSTA : WIFI_MODE_AP);
+    esp_wifi_set_mode(WIFI_MODE_APSTA);
     wifi_config_t ap{};
     strcpy(reinterpret_cast<char *>(ap.ap.ssid), "LDGControl-IDF");
     strcpy(reinterpret_cast<char *>(ap.ap.password), "ldgcontrol");
@@ -579,7 +700,7 @@ void startNetwork() {
         strlcpy(reinterpret_cast<char *>(sta.sta.password), c.device.wifiPassword,
                 sizeof(sta.sta.password));
         esp_wifi_set_config(WIFI_IF_STA, &sta);
-        esp_netif_set_hostname(station, "ldgcontrol");
+        esp_netif_set_hostname(station, hostname);
         if (c.device.useStaticIP) {
             esp_netif_ip_info_t ip{};
             if (esp_netif_str_to_ip4(c.device.staticIP, &ip.ip) == ESP_OK &&
@@ -595,9 +716,15 @@ void startNetwork() {
         }
     }
     esp_wifi_start();
+    if (mdns_init()==ESP_OK) {
+        const bool named=mdns_hostname_set(hostname)==ESP_OK;
+        mdns_instance_name_set("LDGControl-IDF");
+        mdnsReady=named && mdns_service_add(nullptr,"_http","_tcp",80,nullptr,0)==ESP_OK;
+    }
     esp_wifi_set_ps(WIFI_PS_NONE);
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
     esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(1, "time.cloudflare.com");
     esp_sntp_init();
     tciMutex = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(worker, "network", 10240, nullptr, 1, &observedTasks[2], 0);

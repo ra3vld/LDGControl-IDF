@@ -22,4 +22,5 @@ for line in export.splitlines():
     if key not in ('PATH','IDF_PYTHON_ENV_PATH','OPENOCD_SCRIPTS','ESP_ROM_ELF_DIR','IDF_VERSION'):continue
     env[key]=value.replace('$PATH',env.get('PATH','')).replace('%PATH%',env.get('PATH',''))
 python=Path(env['IDF_PYTHON_ENV_PATH'])/('Scripts/python.exe' if os.name=='nt' else 'bin/python')
+subprocess.run([str(python),'-m','pip','install','-r',str(ROOT/'tools/idf-requirements.txt')],env=env,check=True)
 subprocess.run([str(python),str(ROOT/'tools/build.py'),'--board',a.board,'--version',a.version],cwd=ROOT,env=env,check=True)

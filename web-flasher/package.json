@@ -1,0 +1,16 @@
+{
+  "name": "ldgcontrol-idf-web-flasher",
+  "private": true,
+  "scripts": {
+    "build": "node ../tools/build_web_flasher.mjs",
+    "test": "node ../tests/browser_flasher.cjs"
+  },
+  "devDependencies": {
+    "acorn": "8.11.3",
+    "esp-web-tools": "10.4.0",
+    "playwright": "1.63.0",
+    "postcss": "8.4.31",
+    "terser": "5.19.2"
+  },
+  "type": "module"
+}

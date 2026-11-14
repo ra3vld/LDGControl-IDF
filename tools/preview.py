@@ -6,7 +6,7 @@ import json, time, argparse, urllib.parse
 p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8776);a=p.parse_args()
 root=Path(__file__).resolve().parents[1]/'build-sunton/generated/public'
 started=time.monotonic();operations={};fault=False
-state={'boot_id':'1'*32,'source_token':'2'*32,'connected':True,'busy':False,'source':'local','fwd_power':42.5,'ref_power':.8,'swr':1.32,'band':'20m','mode':4,'antenna':1,'meter_age_ms':0,'radio':{'state':'ready','tx_frequency_hz':14074000,'band':'20m','rx_tx':'rx'},'external_antenna':{'confirmed':2,'result':'success','evidence':2}}
+state={'boot_id':'1'*32,'source_token':'2'*32,'connected':True,'busy':False,'source':'local','fwd_power':42.5,'ref_power':.8,'swr':1.32,'band':'20m','mode':4,'tuner_mode':0,'tuning_mode':'controller','antenna_names':['Dipole','Vertical'],'antenna':1,'meter_age_ms':0,'radio':{'state':'ready','tx_frequency_hz':14074000,'band':'20m','rx_tx':'rx'},'external_antenna':{'confirmed':2,'result':'success','evidence':2}}
 config={'revision':1,'enabled':False,'host':'','port':1883,'receiver':0,'watts':1000,'psu_voltage':13.8,'brightness':80,'minimum':15,'maximum':100,'dark_adc':3500,'bright_adc':300,'rotation':0,'view':0,'swr_threshold':2,'username':'admin','uart_rx':35,'uart_tx':22,'bands':[{'ldg':0,'external':0} for _ in range(11)]}
 class Handler(SimpleHTTPRequestHandler):
  def __init__(self,*args,**kw):super().__init__(*args,directory=str(root),**kw)
@@ -21,6 +21,8 @@ class Handler(SimpleHTTPRequestHandler):
   if path=='/api/v2/ws-token':return self.reply({'error':'fixture_polling_only'},503)
   if path.startswith('/api/v2/commands/'):
    item=operations.get(path.rsplit('/',1)[1]);return self.reply(item or {'error':'unknown_operation'},200 if item else 404)
+  if path=='/api/v2/mqtt':return self.reply({'state':'disconnected','error':'tls_certificate','error_active':True,'verify_flags':8,'tls_error':-9984,'attempts':2})
+  if path=='/api/v2/network/scan':return self.reply({'stage':'complete','networks':[{'ssid':'Shack Wi-Fi','rssi':-42,'secure':True},{'ssid':'Open network','rssi':-60,'secure':False}]})
   if path=='/api/v2/diagnostics':return self.reply({'free_internal':48000,'largest_internal':32000,'mqtt_connected':False})
   if path.startswith('/api/'):return self.reply({'error':'fixture_unavailable'},404)
   return super().do_GET()

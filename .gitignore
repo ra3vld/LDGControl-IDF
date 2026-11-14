@@ -10,3 +10,6 @@ __pycache__/
 *.pyc
 *.pem
 !release-public.pem
+
+/web-flasher/node_modules
+/dist/

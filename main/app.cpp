@@ -116,7 +116,7 @@ ldg::Result submit(const ldg::Request &req, ldg::Operation &op) {
                 : ldg::Result::DuplicateConflict;
         if (r == ldg::Result::Success)
             op = *old;
-    } else if (updating)
+    } else if (updating || usbMaintenance())
         r = ldg::Result::Busy;
     else if (applied.remoteEnabled) {
         if (!remoteValid || nowMs() - remoteAt > 3000)
@@ -216,6 +216,10 @@ void stateJson(JsonDocument &out, const Snapshot &s) {
     char token[33], boot[33];
     ldg::formatId(s.target, token);
     ldg::formatId(bootId, boot);
+    auto names = out["antenna_names"].to<JsonArray>();
+    auto config = settings();
+    names.add(config.device.ant1Name);
+    names.add(config.device.ant2Name);
     out["api_version"] = 2;
     out["boot_id"] = boot;
     out["source_token"] = token;
@@ -293,7 +297,7 @@ static void owner(void *) {
             }
             const float voltage = measuredVoltage.load();
             controller->voltage(voltage > 0 ? voltage : applied.device.meterPsuVoltage);
-            controller->pause(updating || applied.remoteEnabled);
+            controller->pause(updating || applied.remoteEnabled || usbMaintenance());
             controller->tick(now);
             bool managed;
             if (controller->takeManagedChange(managed)) {
@@ -338,6 +342,7 @@ void initialize() {
     startHttp();
     startSensors();
     startDisplay();
+    startUsb();
     ESP_LOGI("boot", "LDGControl-IDF 0.1.0; free internal=%u, largest=%u",
              unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
              unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)));
@@ -346,6 +351,7 @@ void initialize() {
 extern "C" void app_main() {
     app::initialize();
     for (unsigned i = 0;; ++i) {
+        app::serviceUsb();
         app::serviceSensors();
         app::displayService();
         if (i >= 1000 && i % 100 == 0)

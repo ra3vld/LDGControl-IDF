@@ -19,6 +19,7 @@ const output=path.join(__dirname,'../docs/screenshots');
           if(endpoint==='/api/v2/commands')return route.fulfill({status:202,contentType:'application/json',body:JSON.stringify({...request.postDataJSON(),state:'done',result:'success'})});
           return route.fulfill({status:400,contentType:'application/json',body:'{"error":"invalid_request"}'});
         }
+        if(endpoint==='/api/v2/config/mqtt')return route.fulfill({contentType:'application/json',body:JSON.stringify({revision:1,enabled:true,host:'rotator.r3v.ru',port:8883,username:'ldg-device',password_set:true,discovery:false})});
         if(endpoint.startsWith('/api/v2/commands/'))return route.fulfill({contentType:'application/json',body:'{"state":"done","result":"success"}'});
         return route.continue();
       });
@@ -54,6 +55,9 @@ const output=path.join(__dirname,'../docs/screenshots');
       await page.evaluate(()=>scrollTo(0,0));
       const work=await page.locator('#work').boundingBox();
       await page.screenshot({path:path.join(output,`web-control-${language}.png`),clip:{x:0,y:0,width:1280,height:Math.ceil(work.y+work.height+16)}});
+      const mqtt=page.locator('#settings-sections>details').nth(1);
+      await mqtt.locator('summary').click();await mqtt.locator('form').waitFor();await page.waitForFunction(()=>document.querySelector('#settings-sections>details:nth-child(2) pre').textContent.includes('verify_flags'));
+      await mqtt.screenshot({path:path.join(output,`web-mqtt-${language}.png`)});await mqtt.locator('summary').click();
       const display=page.locator('#settings-sections>details').nth(6);
       await display.locator('summary').click();await display.locator('form').waitFor({state:'visible'});
       if(await display.locator('input[name=view]').count())throw Error('Removed display view selector is still exposed');

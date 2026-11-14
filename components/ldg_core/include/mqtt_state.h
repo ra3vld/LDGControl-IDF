@@ -50,7 +50,7 @@ public:
         if (m_hasPublished && significantChange(m_previous, state)) m_pending = true;
         const uint32_t elapsed = now - m_lastPublished;
         return m_immediate || !m_hasPublished || elapsed >= IDLE_MS ||
-               (m_pending && elapsed >= ACTIVE_MS);
+               ((m_pending || state.meterValid) && elapsed >= ACTIVE_MS);
     }
     void published(uint32_t now, const tuner_state_t& state) {
         m_previous = state;

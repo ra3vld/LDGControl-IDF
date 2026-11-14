@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "settings.hpp"
+#include "build_identity.hpp"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include <atomic>
@@ -42,6 +43,17 @@ uint8_t commandCode(const char *);
 const char *commandName(uint8_t);
 extern std::atomic<bool> httpReady;
 void captiveDnsService();
+void startUsb();
+void serviceUsb();
+bool usbMaintenance();
+bool maintenanceSafe();
+void holdMaintenance();
+void scheduleRestart();
+void deviceIdentity(JsonDocument&);
+void networkDiagnostics(JsonObject);
+void lcdDiagnostics(JsonObject);
+bool requestWifiScan();
+void wifiScanJson(JsonDocument&);
 void startHttp();
 void startNetwork();
 extern std::atomic<int> lightRaw;

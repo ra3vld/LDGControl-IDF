@@ -24,3 +24,10 @@ patches or linker wrappers are used.
 
 Display palette, control layout and DejaVu Sans glyph subsets adapted from
 Remote-LDGControl. Font copyright and license: docs/licenses/DejaVu.txt.
+
+USB API 1 framing, connection validation, managed-broker trust anchor and the
+browser USB installer/account-linking flow are adapted from ra3vld/Remote-LDGControl,
+commit 7823a24a8c2f50dc978e5ca7a2b615a95aa73eb0, with contributions by
+Dmitry E and contributors. Original source: https://github.com/ra3vld/Remote-LDGControl.
+ESP Web Tools and its browser dependencies retain their own licenses, included
+in the generated installer site's THIRD_PARTY_LICENSES.txt.
