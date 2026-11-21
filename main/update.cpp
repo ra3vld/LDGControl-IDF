@@ -11,6 +11,7 @@
 #include "mbedtls/base64.h"
 #include <cstring>
 #include <cstdio>
+#include <cstdlib>
 #include <atomic>
 extern const unsigned char release_key_start[] asm("_binary_release_public_pem_start");
 extern const unsigned char release_key_end[] asm("_binary_release_public_pem_end");
@@ -23,6 +24,7 @@ static const esp_partition_t *partition = nullptr;
 static mbedtls_sha256_context digest;
 static uint8_t expectedHash[32];
 static std::atomic<bool> cancelled{false};
+static bool transferOpen = false;
 static uint32_t lastProgress = 0;
 static ldg::ImagePrefix<sizeof(esp_image_header_t)> prefix;
 void updateInit() {
@@ -58,7 +60,7 @@ static const char *board() {
 }
 bool updateBegin(JsonVariantConst manifest) {
     xSemaphoreTake(mutex, portMAX_DELAY);
-    if (status.active || updating) {
+    if (status.active || updating || transferOpen) {
         xSemaphoreGive(mutex);
         return false;
     }
@@ -165,10 +167,35 @@ void updateService() {
     lastProgress = nowMs();
     xSemaphoreGive(mutex);
 }
+uint8_t *updateOpenTransfer(size_t uploadBytes) {
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    uint8_t *buffer = nullptr;
+    if (status.active && !cancelled && !transferOpen && !strcmp(status.stage, "receiving") &&
+        (!uploadBytes || (status.bytes == 0 && uploadBytes == status.total))) {
+        buffer = static_cast<uint8_t *>(
+            heap_caps_malloc(updateChunkSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        if (buffer)
+            transferOpen = true;
+        else
+            fail("memory_budget");
+    }
+    xSemaphoreGive(mutex);
+    return buffer;
+}
+UpdateStatus updateCloseTransfer(uint8_t *buffer, const char *failure) {
+    free(buffer);
+    xSemaphoreTake(mutex, portMAX_DELAY);
+    if (failure && status.active)
+        fail(cancelled ? "cancelled" : failure);
+    transferOpen = false;
+    auto result = status;
+    xSemaphoreGive(mutex);
+    return result;
+}
 bool updateWrite(const uint8_t *bytes, size_t n) {
     xSemaphoreTake(mutex, portMAX_DELAY);
     bool ok =
-        status.active && handle && !cancelled && n <= 4096 && n <= status.total - status.bytes;
+        status.active && handle && !cancelled && n <= updateChunkSize && n <= status.total - status.bytes;
     const uint8_t *remaining = bytes;
     size_t rest = n;
     if (ok && !prefix.complete()) {
@@ -232,21 +259,25 @@ bool updateCancel() {
     xSemaphoreGive(mutex);
     return true;
 }
-void updateDownload(const char *url) {
+UpdateStatus updateDownload(const char *url) {
     if (strncmp(url, "https://", 8) || strlen(url) > 1024 || !updateStatus().active) {
         updateCancel();
-        return;
+        return updateStatus();
     }
-    // Explicit bounded Range requests, allowing GitHub's HTTPS redirects.
-    uint8_t bytes[4096];
+    auto bytes = updateOpenTransfer();
+    if (!bytes)
+        return updateStatus();
+    constexpr uint32_t downloadTimeoutMs = 9 * 60 * 1000;
+    const auto total = updateStatus().total;
     uint32_t offset = 0;
-    bool ok = true;
-    while (offset < updateStatus().total && !cancelled) {
-        const uint32_t remaining = updateStatus().total - offset;
-        const unsigned amount = std::min(uint32_t(sizeof(bytes)), remaining);
+    const auto started = nowMs();
+    unsigned stalls = 0;
+    // Stream through a bounded buffer and resume from the written offset if the connection breaks.
+    while (stalls < 3 && offset < total && !cancelled && updateStatus().active &&
+           nowMs() - started < downloadTimeoutMs) {
+        const auto first = offset;
         char range[64];
-        snprintf(range, sizeof(range), "bytes=%u-%u", unsigned(offset),
-                 unsigned(offset + amount - 1));
+        snprintf(range, sizeof(range), "bytes=%u-%u", unsigned(offset), unsigned(total - 1));
         esp_http_client_config_t cfg{};
         cfg.url = url;
         cfg.crt_bundle_attach = esp_crt_bundle_attach;
@@ -264,61 +295,54 @@ void updateDownload(const char *url) {
             return ESP_OK;
         };
         auto client = esp_http_client_init(&cfg);
-        if (!client) {
-            ok = false;
+        if (!client)
             break;
-        }
         esp_http_client_set_header(client, "Range", range);
         esp_err_t opened = ESP_FAIL;
         int code = 0;
-        for (unsigned redirect = 0; redirect < 5; ++redirect) {
+        for (unsigned redirect = 0; redirect < 5 && !cancelled; ++redirect) {
             response.valid = false;
             opened = esp_http_client_open(client, 0);
             if (opened != ESP_OK)
                 break;
-            esp_http_client_fetch_headers(client);
+            if (esp_http_client_fetch_headers(client) < 0) {
+                opened = ESP_FAIL;
+                break;
+            }
             code = esp_http_client_get_status_code(client);
             if (code < 300 || code >= 400)
                 break;
-            if (esp_http_client_set_redirection(client) != ESP_OK)
-                break;
-            char redirectUrl[1200];
-            if (esp_http_client_get_url(client, redirectUrl, sizeof(redirectUrl)) != ESP_OK ||
-                strncmp(redirectUrl, "https://", 8)) {
+            if (esp_http_client_set_redirection(client) != ESP_OK ||
+                esp_http_client_get_transport_type(client) != HTTP_TRANSPORT_OVER_SSL) {
                 opened = ESP_FAIL;
                 break;
             }
             esp_http_client_close(client);
         }
-        if (opened != ESP_OK || code != 206 || !response.valid || response.first != offset ||
-            response.last != offset + amount - 1 || response.total != updateStatus().total ||
-            esp_http_client_get_content_length(client) != amount) {
+        if (opened != ESP_OK) {
             esp_http_client_cleanup(client);
-            ok = false;
+            ++stalls;
+            continue;
+        }
+        if (code != 206 || !response.valid || response.first != offset ||
+            response.last != total - 1 || response.total != total ||
+            esp_http_client_get_content_length(client) != total - offset) {
+            esp_http_client_cleanup(client);
             break;
         }
-        unsigned got = 0;
-        while (got < amount && !cancelled) {
-            int n =
-                esp_http_client_read(client, reinterpret_cast<char *>(bytes + got), amount - got);
-            if (n <= 0)
+        while (offset < total && !cancelled && nowMs() - started < downloadTimeoutMs) {
+            const auto count = std::min(size_t(total - offset), updateChunkSize);
+            int n = esp_http_client_read(client, reinterpret_cast<char *>(bytes), count);
+            if (n <= 0 || !updateWrite(bytes, n))
                 break;
-            got += n;
+            offset += n;
         }
         esp_http_client_cleanup(client);
-        if (got != amount || !updateWrite(bytes, got)) {
-            ok = false;
-            break;
-        }
-        offset += got;
+        stalls = offset == first ? stalls + 1 : 0;
     }
-    if (ok && !cancelled)
+    if (offset == total && updateStatus().active)
         updateFinish();
-    else {
-        xSemaphoreTake(mutex, portMAX_DELAY);
-        fail(cancelled ? "cancelled" : "download_failed");
-        xSemaphoreGive(mutex);
-    }
+    return updateCloseTransfer(bytes, "download_failed");
 }
 void updateBootCheck() {
     static bool checked = false;

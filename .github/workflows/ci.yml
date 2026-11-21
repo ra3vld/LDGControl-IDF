@@ -191,6 +191,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      actions: write
     concurrency:
       group: ldg-stable-release
       cancel-in-progress: false
@@ -224,16 +225,16 @@ jobs:
           else
             gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG" --notes-file release-notes.md
           fi
-          gh release upload "$RELEASE_TAG" ./* --clobber
+          assets=(SHA256SUMS firmware-usb.zip diagnostic-elf.zip)
+          if [[ ! -f headless.manifest.json ]]; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
+            echo 'Release remains a draft awaiting signed OTA images.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          for board in headless sunton guition; do
+            test -s "$board.bin" && test -s "$board.manifest.json" || exit 1
+            assets+=("$board.bin" "$board.manifest.json")
+          done
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --clobber
           gh release edit "$RELEASE_TAG" --draft=false --latest
-
-  deploy:
-    if: github.ref_type == 'tag'
-    needs: release
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    uses: ./.github/workflows/pages.yml
-    with:
-      release_tag: ${{ github.ref_name }}
+          gh workflow run pages.yml --ref main

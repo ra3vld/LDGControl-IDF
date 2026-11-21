@@ -125,7 +125,8 @@ after eight seconds, pausing while hovered or focused.
 
 ### Updates
 
-In **Service**, check GitHub or select a `.bin` file and its matching
+In **Service → Updates**, the device shows its installed firmware profile and
+version. Check GitHub or select a `.bin` file and its matching
 `<profile>.manifest.json`. The browser checks for stable releases once per day;
 installation always requires a user action. File uploads work without Internet
 access. A failed GitHub check does not interrupt control.
@@ -279,7 +280,8 @@ BYPASS сохраняет CONTROLLED; повторное нажатие возв
 
 ### Обновления
 
-В «Обслуживание» можно проверить GitHub или выбрать `.bin` и соответствующий
+Раздел «Обслуживание → Обновления» показывает профиль и версию установленной прошивки.
+Здесь можно проверить GitHub или выбрать `.bin` и соответствующий
 `<профиль>.manifest.json`. Проверка новых стабильных релизов выполняется браузером
 раз в сутки и не устанавливает их автоматически. Файловая загрузка работает без
 Интернета. Ошибка проверки GitHub не мешает управлению.

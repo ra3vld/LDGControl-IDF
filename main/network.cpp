@@ -685,6 +685,11 @@ void startNetwork() {
     esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, wifiEvent, nullptr);
     esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, wifiEvent, nullptr);
     wifi_init_config_t init = WIFI_INIT_CONFIG_DEFAULT();
+#if LDG_BOARD_headless || LDG_BOARD_sunton
+    // Leave room for bursts of incoming TCP frames on classic ESP32.
+    init.static_rx_buf_num = 6;
+    init.dynamic_rx_buf_num = 16;
+#endif
     if (esp_wifi_init(&init) != ESP_OK)
         return;
     auto c = settings();

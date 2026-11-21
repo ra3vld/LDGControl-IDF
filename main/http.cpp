@@ -17,6 +17,7 @@ namespace app {
 std::atomic<bool> httpReady{false};
 static httpd_handle_t server;
 static QueueHandle_t apiQueue, bulkQueue;
+static constexpr unsigned maxActiveHttp = 4;
 static SemaphoreHandle_t wsWriteMutex;
 static std::atomic<unsigned> activeHttp{0};
 static portMUX_TYPE wsMutex = portMUX_INITIALIZER_UNLOCKED;
@@ -411,35 +412,36 @@ static void api(httpd_req_t *req) {
 }
 static void bulk(httpd_req_t *req) {
     if (!strcmp(req->uri, "/api/v2/update/upload") && req->method == HTTP_POST) {
-        uint8_t buffer[4096];
-        size_t received = 0;
-        bool ok = true;
-        uint32_t progress = nowMs();
-        if (!updateStatus().active || req->content_len != updateStatus().total) {
-            error(req, 409, "prepare_required");
+        auto buffer = req->content_len ? updateOpenTransfer(req->content_len) : nullptr;
+        if (!buffer) {
+            auto status = updateStatus();
+            error(req, 409, status.error[0] ? status.error : "prepare_required");
             return;
         }
+        size_t received = 0;
+        bool ok = true;
         while (received < req->content_len) {
             int n = httpd_req_recv(req, reinterpret_cast<char *>(buffer),
-                                   std::min(sizeof(buffer), req->content_len - received));
+                                   std::min(updateChunkSize, req->content_len - received));
             if (n > 0) {
                 ok = updateWrite(buffer, n);
                 received += n;
-                progress = nowMs();
                 if (!ok)
                     break;
-            } else if (n != HTTPD_SOCK_ERR_TIMEOUT || nowMs() - progress > 10000) {
+            } else if (n != HTTPD_SOCK_ERR_TIMEOUT || !updateStatus().active) {
                 ok = false;
                 break;
             }
         }
         if (!ok) {
-            updateCancel();
-            error(req, 400, "upload_interrupted");
+            const auto status = updateCloseTransfer(buffer, "upload_interrupted");
+            error(req, 400, status.error);
             return;
         }
-        if (!updateFinish()) {
-            error(req, 400, updateStatus().error);
+        const bool finished = updateFinish();
+        const auto status = updateCloseTransfer(buffer, nullptr);
+        if (!finished) {
+            error(req, 400, status.error);
             return;
         }
         httpd_resp_sendstr(req, "{\"result\":\"success\"}");
@@ -453,9 +455,9 @@ static void bulk(httpd_req_t *req) {
             error(req, 400, "invalid_url");
             return;
         }
-        updateDownload(in.doc["url"]);
-        if (strcmp(updateStatus().stage, "ready")) {
-            error(req, 400, updateStatus().error);
+        const auto status = updateDownload(in.doc["url"]);
+        if (strcmp(status.stage, "ready")) {
+            error(req, 400, status.error[0] ? status.error : "prepare_required");
             return;
         }
         httpd_resp_sendstr(req, "{\"result\":\"success\"}");
@@ -510,7 +512,7 @@ static esp_err_t dispatch(httpd_req_t *req) {
     }
     bool isBulk = strncmp(req->uri, "/api/", 5) || !strcmp(req->uri, "/api/v2/update/upload") ||
                   !strcmp(req->uri, "/api/v2/update/download");
-    if (activeHttp.fetch_add(1) >= 4) {
+    if (activeHttp.fetch_add(1) >= maxActiveHttp) {
         --activeHttp;
         return error(req, 503, "busy");
     }
@@ -559,7 +561,8 @@ static void live(void *) {
 void startHttp() {
     wsWriteMutex = xSemaphoreCreateMutex();
     apiQueue = xQueueCreate(2, sizeof(httpd_req_t *));
-    bulkQueue = xQueueCreate(1, sizeof(httpd_req_t *));
+    // Browsers request several assets in parallel. Keep room for all admitted requests.
+    bulkQueue = xQueueCreate(maxActiveHttp, sizeof(httpd_req_t *));
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.max_open_sockets = 6;
     cfg.max_uri_handlers = 6;

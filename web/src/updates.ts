@@ -21,6 +21,10 @@ type Manifest = {
 export function start(ctx: Context) {
     const get = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
     const { api, message, t, caps } = ctx;
+    const boardNames: Record<string, string> = { headless: 'Headless', sunton: 'Sunton', guition: 'Guition' };
+    const board = String(caps.board ?? '');
+    get('installed-firmware').textContent = board ? `LDGControl-IDF · ${boardNames[board] ?? board}` : 'LDGControl-IDF';
+    get('installed-version').textContent = String(caps.firmware ?? '—');
     let active = false;
     const repo = String(caps.release_repository ?? '');
     async function check(manual = false) {
@@ -103,6 +107,7 @@ export function start(ctx: Context) {
         if (!asset)
             return;
         const install = document.createElement('button');
+        install.type = 'button';
         install.dataset.i18n = 'installRelease';
         install.textContent = t('installRelease');
         install.onclick = async () => {

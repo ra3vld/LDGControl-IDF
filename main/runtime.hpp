@@ -73,9 +73,12 @@ void updateInit();
 void updateService();
 UpdateStatus updateStatus();
 bool updateBegin(JsonVariantConst manifest);
+inline constexpr size_t updateChunkSize = 4096;
+uint8_t *updateOpenTransfer(size_t uploadBytes = 0);
+UpdateStatus updateCloseTransfer(uint8_t *buffer, const char *failure);
 bool updateWrite(const uint8_t *, size_t);
 bool updateFinish();
 bool updateCancel();
-void updateDownload(const char *url);
+UpdateStatus updateDownload(const char *url);
 void updateBootCheck();
 } // namespace app

@@ -7,6 +7,31 @@
 <details><summary data-i18n="external">External switch</summary><form id="external-form"><label><span data-i18n="port">Port</span><input name="port" type="number" min="1" max="16" value="1" required></label><button type="submit" data-i18n="select">Select</button><p class="action-result" role="status"></p></form><p id="external-state"></p></details>
 <section id="history"><div class="section-title"><h2 data-i18n="history">History · 30 minutes</h2><label><input id="tx-only" type="checkbox"><span data-i18n="txOnly">TX time only</span></label></div><div id="charts-placeholder"><span data-i18n="loadingCharts">Charts are loading in the background…</span><button id="retry-charts" hidden data-i18n="retry">Retry</button></div><canvas id="chart" height="300" hidden></canvas></section></section>
 <section id="settings"><h2 data-i18n="settings">Settings</h2><p data-i18n="optional">Configure each feature independently. Unused connections can stay disabled.</p><div id="settings-sections"></div></section>
-<section id="service"><h2 data-i18n="service">Service</h2><article><h3 data-i18n="updates">Updates</h3><p id="release-state"></p><button id="check-updates" data-i18n="checkUpdates">Check GitHub</button><div id="release-list"></div><form id="upload-form"><label><span data-i18n="manifest">Release manifest (JSON)</span><input name="manifest" type="file" accept=".json" required></label><label><span data-i18n="firmware">Firmware (.bin)</span><input name="firmware" type="file" accept=".bin" required></label><button type="submit" data-i18n="installFile">Install file</button><p class="action-result" role="status"></p></form><progress id="ota-progress" max="100" value="0" hidden></progress><p id="ota-state" role="status"></p><button id="cancel-update" hidden data-i18n="cancel">Cancel</button></article>
+<section id="service"><h2 data-i18n="service">Service</h2>
+<article class="update-panel">
+    <div class="update-actions">
+        <h3 data-i18n="updates">Updates</h3>
+        <button id="check-updates" type="button" data-i18n="checkUpdates">Check GitHub</button>
+    </div>
+    <dl class="update-firmware">
+        <div><dt data-i18n="installedFirmware">Installed firmware</dt><dd id="installed-firmware">—</dd></div>
+        <div><dt data-i18n="installedVersion">Version</dt><dd id="installed-version">—</dd></div>
+    </dl>
+    <p id="release-state" role="status"></p>
+    <div id="release-list" class="update-actions"></div>
+    <form id="upload-form">
+        <div class="update-files">
+            <label><span data-i18n="manifest">Release manifest (JSON)</span><input name="manifest" type="file" accept=".json" required></label>
+            <label><span data-i18n="firmware">Firmware (.bin)</span><input name="firmware" type="file" accept=".bin" required></label>
+        </div>
+        <button type="submit" data-i18n="installFile">Install file</button>
+        <p class="action-result" role="status"></p>
+    </form>
+    <progress id="ota-progress" max="100" value="0" aria-labelledby="ota-state" hidden></progress>
+    <div class="update-actions">
+        <p id="ota-state" role="status"></p>
+        <button id="cancel-update" type="button" hidden data-i18n="cancel">Cancel</button>
+    </div>
+</article>
 <article><h3 data-i18n="diagnostics">Diagnostics</h3><button id="diagnostics-button" data-i18n="refresh">Refresh</button><dl id="diagnostics"></dl><p class="action-result" role="status"></p></article><article><button id="reconnect-mqtt" data-i18n="mqttReconnect">Reconnect MQTT</button><button id="factory-reset" class="danger" data-i18n="factoryReset">Reset settings</button><p id="reset-result" class="action-result" role="status"></p><button id="restart" data-i18n="restart">Restart device</button><p class="action-result" role="status"></p></article></section></main>
 <aside id="toast" role="alert" aria-live="assertive" hidden><span></span><button aria-label="Close notification" data-i18n-aria-label="closeNotification">×</button></aside><script type="module" src="/assets/@BUILD@/main.js"></script></body></html>

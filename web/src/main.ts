@@ -60,6 +60,8 @@ Object.assign(texts, {
     closeNotification: ['Закрыть уведомление', 'Close notification'],
     switchToRussian: ['Переключить на русский', 'Switch to Russian'],
     switchToEnglish: ['Переключить на английский', 'Switch to English'],
+    installedFirmware: ['Установленная прошивка', 'Installed firmware'],
+    installedVersion: ['Версия', 'Version'],
     installRelease: ['Установить релиз', 'Install release'],
     minutes30: ['−30 мин', '−30 min'],
     'Home Assistant discovery': ['Обнаружение Home Assistant', 'Home Assistant discovery']
