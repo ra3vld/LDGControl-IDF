@@ -1,12 +1,73 @@
-name: Build and regression checks
-on: [push, pull_request, workflow_dispatch]
+name: Firmware and web flasher
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - 'web-flasher/*.html'
+      - 'web-flasher/*.js'
+      - 'web-flasher/*.css'
+      - 'web-flasher/images/**'
+      - 'web-flasher/photos.json'
+      - 'web-flasher/package*.json'
+      - 'tools/build_web_flasher.mjs'
+      - 'tools/patch_web_flasher_vendor.mjs'
+      - 'tests/browser_flasher.cjs'
+      - '.github/workflows/pages.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: ESP-IDF board profile to build
+        type: choice
+        default: all
+        options: [all, headless, sunton, guition]
+
 permissions:
   contents: read
+
+concurrency:
+  group: ldg-firmware-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 jobs:
   core:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      version: ${{ steps.plan.outputs.version }}
+      full: ${{ steps.plan.outputs.full }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          PROFILE: ${{ inputs.profile || 'headless' }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        shell: bash
+        run: |
+          version=
+          full=false
+          if [[ -n "$RELEASE_TAG" ]]; then
+            version=$(python3 tools/web_flasher_release.py check-tag "$RELEASE_TAG")
+          fi
+          if [[ -n "$version" || "$PROFILE" == all ]]; then
+            full=true
+            matrix=$(python3 -c 'import json; print(json.dumps({"board": [p["id"] for p in json.load(open("web-flasher/profiles.json"))["profiles"]]}))')
+          else
+            matrix=$(python3 -c 'import json, sys; print(json.dumps({"board": sys.argv[1:]}))' "$PROFILE")
+          fi
+          {
+            echo "matrix=$matrix"
+            echo "version=$version"
+            echo "full=$full"
+          } >> "$GITHUB_OUTPUT"
       - run: SANITIZE=1 python3 tools/test.py
       - run: SANITIZE=1 python3 tools/test_adapters.py
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -14,26 +75,38 @@ jobs:
           node-version: '24'
       - run: python3 tools/build_web.py build-web/generated
       - run: node tools/test_web.mjs
-      - run: python3 tests/test_web_flasher.py
       - run: python3 -m pip install --target .tools/site-python -r tools/site-requirements.txt
+      - run: PYTHONPATH=.tools/site-python python3 -m unittest discover -s tests -p 'test_web_flasher*.py'
       - run: PYTHONPATH=.tools/site-python python3 tests/test_firmware_identity.py
+
   firmware:
+    needs: core
     strategy:
       fail-fast: false
-      matrix:
-        board: [headless, sunton, guition]
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.core.outputs.matrix) }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     container: espressif/idf:v5.5.5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - shell: bash
+      - env:
+          BOARD: ${{ matrix.board }}
+          VERSION: ${{ needs.core.outputs.version }}
+        shell: bash
         run: |
           . "$IDF_PATH/export.sh"
           python -m pip install -r tools/idf-requirements.txt
-          python tools/build.py --board '${{ matrix.board }}'
+          version_args=()
+          if [[ -n "$VERSION" ]]; then
+            version_args=(--version "$VERSION")
+          fi
+          python tools/build.py --board "$BOARD" "${version_args[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: build-${{ matrix.board }}
+          if-no-files-found: error
+          retention-days: 3
           path: |
             build-${{ matrix.board }}/ldgcontrol.bin
             build-${{ matrix.board }}/ldgcontrol.elf
@@ -51,25 +124,116 @@ jobs:
 
   website:
     needs: [core, firmware]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+          cache: npm
+          cache-dependency-path: web-flasher/package-lock.json
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: build-*
           path: build-artifacts
       - run: npm ci --prefix web-flasher --ignore-scripts --no-audit --no-fund
       - run: python3 -m pip install --target .tools/site-python -r tools/site-requirements.txt
-      - run: PYTHONPATH=.tools/site-python node tools/build_web_flasher.mjs dist/web-flasher --build-root build-artifacts
-      - run: npm ci --prefix web --ignore-scripts --no-audit --no-fund
+      - name: Validate firmware and build the flasher
+        env:
+          PYTHONPATH: .tools/site-python
+          FULL: ${{ needs.core.outputs.full }}
+        shell: bash
+        run: |
+          args=()
+          if [[ "$FULL" != true ]]; then
+            args=(--allow-missing)
+          fi
+          node tools/build_web_flasher.mjs dist/web-flasher --build-root build-artifacts "${args[@]}"
       - run: npx --prefix web-flasher playwright install --with-deps chromium
-      - run: PLAYWRIGHT_MODULE=../web-flasher/node_modules/playwright CHROMIUM_PATH='' WEB_FLASHER_SITE=dist/web-flasher node tests/browser_flasher.cjs
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - name: Check the installer in Chromium
+        env:
+          PLAYWRIGHT_MODULE: ../web-flasher/node_modules/playwright
+          CHROMIUM_PATH: ''
+          WEB_FLASHER_SITE: dist/web-flasher
+          WEB_FLASHER_OUTPUT: ${{ runner.temp }}/flasher-browser
+          WEB_FLASHER_SCREENSHOTS: ${{ runner.temp }}/flasher-screenshots
+        run: node tests/browser_flasher.cjs
+      - name: Package the release
+        if: github.ref_type == 'tag'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          LDG_OTA_SIGNING_KEY: ${{ secrets.LDG_OTA_SIGNING_KEY }}
+        run: |
+          python3 tools/web_flasher_release.py package "$RELEASE_TAG" \
+            --site dist/web-flasher --build-root build-artifacts --output dist/release
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.ref_type == 'tag'
+        with:
+          name: release-assets
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 3
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.event_name == 'workflow_dispatch' && github.ref_type == 'branch' && needs.core.outputs.full == 'true'
         with:
           name: web-flasher-site
-          path: dist/web-flasher
+          path: dist/web-flasher/
           if-no-files-found: error
+          retention-days: 3
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: website
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: ldg-stable-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Verify and publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        working-directory: release-assets
+        shell: bash
+        run: |
+          sha256sum --check --strict SHA256SUMS
+          stable=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')
+          if [[ -n "$stable" ]]; then
+            latest=$(gh release view --json tagName --jq .tagName)
+            if [[ "$(printf '%s\n' "$latest" "$RELEASE_TAG" | sort -V | tail -n 1)" != "$RELEASE_TAG" ]]; then
+              echo "Release $RELEASE_TAG is older than $latest" >&2
+              exit 1
+            fi
+          fi
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft); then
+            if [[ "$draft" == false ]]; then
+              exit 0
+            fi
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG" --notes-file release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" ./* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --latest
+
+  deploy:
+    if: github.ref_type == 'tag'
+    needs: release
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
+    with:
+      release_tag: ${{ github.ref_name }}

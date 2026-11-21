@@ -1,64 +1,134 @@
 name: Publish USB flasher to Pages
+
 on:
-  workflow_run:
-    workflows: [Build and regression checks]
-    types: [completed]
+  push:
     branches: [main]
+    paths:
+      - 'README.md'
+      - 'docs/**'
+      - 'web-flasher/*.html'
+      - 'web-flasher/*.js'
+      - 'web-flasher/*.css'
+      - 'web-flasher/images/**'
+      - 'web-flasher/photos.json'
+      - 'web-flasher/package*.json'
+      - 'tools/build_web_flasher.mjs'
+      - 'tools/patch_web_flasher_vendor.mjs'
+      - 'tests/browser_flasher.cjs'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
+  workflow_call:
     inputs:
-      ci_run:
-        description: Successful CI run for the current main commit
+      release_tag:
+        description: Tagged firmware release to deploy after publication
+        type: string
         required: true
+
 permissions:
   contents: read
+
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ldg-flasher-website-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
 jobs:
-  prepare:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+  website:
+    if: github.ref == 'refs/heads/main' || (github.ref_type == 'tag' && inputs.release_tag == github.ref_name)
     runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      actions: read
+    timeout-minutes: 20
+    outputs:
+      release_tag: ${{ steps.release.outputs.tag }}
     steps:
-      - name: Verify CI identity and current main
+      - id: release
+        name: Select the latest published release
         env:
           GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          CI_RUN: ${{ github.event.workflow_run.id || inputs.ci_run }}
+          GH_REPO: ${{ github.repository }}
+          EXPECTED_TAG: ${{ inputs.release_tag }}
+        shell: bash
         run: |
-          python3 - <<'PY'
-          import json,os,urllib.request
-          base='https://api.github.com/repos/'+os.environ['REPOSITORY']
-          def get(path):
-              request=urllib.request.Request(base+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-              return json.load(urllib.request.urlopen(request))
-          run=get('/actions/runs/'+str(int(os.environ['CI_RUN'])))
-          main=get('/git/ref/heads/main')['object']['sha']
-          assert run['conclusion']=='success' and run['name']=='Build and regression checks'
-          assert run['event'] in ('push','workflow_dispatch') and run['head_branch']=='main'
-          assert run['head_repository']['full_name']==os.environ['REPOSITORY'] and run['head_sha']==main
-          PY
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+          stable=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')
+          if [[ -z "$stable" && -z "$EXPECTED_TAG" ]]; then
+            echo 'Publish the first firmware tag to enable website-only deployments.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          tag=$(gh release view --json tagName --jq 'if .isDraft or .isPrerelease then error("Expected a published stable release") else .tagName end')
+          if [[ -n "$EXPECTED_TAG" && "$tag" != "$EXPECTED_TAG" ]]; then
+            echo 'A different firmware release is already latest.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: steps.release.outputs.tag != ''
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.release.outputs.tag != ''
         with:
-          name: web-flasher-site
-          path: site
-          run-id: ${{ github.event.workflow_run.id || inputs.ci_run }}
-          github-token: ${{ github.token }}
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web-flasher/package-lock.json
+      - name: Download the released firmware and rebuild the website
+        if: steps.release.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          mkdir -p build-release
+          gh release download "$RELEASE_TAG" --dir build-release \
+            --pattern web-flasher-site.zip --pattern 'firmware-*.zip' \
+            --pattern sources.zip --pattern SHA256SUMS
+          npm ci --prefix web-flasher --ignore-scripts --no-audit --no-fund
+          node tools/build_web_flasher.mjs dist/web-flasher --release-dir build-release --release-tag "$RELEASE_TAG"
+      - if: steps.release.outputs.tag != ''
+        run: npx --prefix web-flasher playwright install --with-deps chromium
+      - name: Check the rebuilt installer in Chromium
+        if: steps.release.outputs.tag != ''
+        env:
+          PLAYWRIGHT_MODULE: ../web-flasher/node_modules/playwright
+          CHROMIUM_PATH: ''
+          WEB_FLASHER_SITE: dist/web-flasher
+          WEB_FLASHER_OUTPUT: ${{ runner.temp }}/flasher-browser
+          WEB_FLASHER_SCREENSHOTS: ${{ runner.temp }}/flasher-screenshots
+        run: node tests/browser_flasher.cjs
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+        if: steps.release.outputs.tag != ''
         with:
-          path: site
+          path: dist/web-flasher
+          retention-days: 1
+
   deploy:
-    needs: prepare
+    needs: website
+    if: needs.website.outputs.release_tag != ''
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
+      contents: read
       pages: write
       id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Confirm the firmware release is still current
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.website.outputs.release_tag }}
+        shell: bash
+        run: |
+          latest=$(gh release view --json tagName --jq .tagName)
+          if [[ "$latest" != "$RELEASE_TAG" ]]; then
+            echo 'A newer firmware release superseded this deployment.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo 'deploy=true' >> "$GITHUB_OUTPUT"
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b
+        if: steps.latest.outputs.deploy == 'true'
       - uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e
+        if: steps.latest.outputs.deploy == 'true'
         id: deployment

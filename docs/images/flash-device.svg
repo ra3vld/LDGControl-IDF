@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="72" viewBox="0 0 360 72" role="img" aria-labelledby="title">
+  <title id="title">Flash device</title>
+  <rect x="2" y="2" width="356" height="68" rx="14" fill="#9be6b4" stroke="#315c40" stroke-width="3"/>
+  <path d="M28 28v15a8 8 0 0 0 16 0V28m-20 0h24m-17-8v8m10-8v8m-5 23v9" fill="none" stroke="#10261a" stroke-width="3" stroke-linecap="round"/>
+  <text x="196" y="45" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="25" font-weight="700" fill="#10261a">FLASH DEVICE</text>
+</svg>

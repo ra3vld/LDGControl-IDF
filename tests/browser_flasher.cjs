@@ -56,7 +56,7 @@ const staticServer=http.createServer((req,res)=>{const relative=new URL(req.url,
   await page.evaluate(()=>{usbFixture.ip=null});await page.locator('#checkConnection').click();await page.waitForFunction(()=>!document.getElementById('checkConnection').disabled);assert.equal(await page.locator('#localLink').getAttribute('href'),'http://192.168.1.99/');
   passed.push('Verified local IP opens a separate tab; connection check never writes settings; invalid address clears the old link');
   for(const width of [1280,390]){await page.setViewportSize({width,height:1000});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:path.join(output,'manual-'+width+'.png'),fullPage:true})}await page.setViewportSize({width:1280,height:1000});
-  const docs=path.join(root,'docs/screenshots');fs.mkdirSync(docs,{recursive:true});
+  const docs=process.env.WEB_FLASHER_SCREENSHOTS||path.join(root,'docs/screenshots');fs.mkdirSync(docs,{recursive:true});
   await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:path.join(docs,'usb-installer-en.png'),fullPage:true});
   await page.locator('#language').click();assert.equal(await page.locator('html').getAttribute('lang'),'ru');assert.equal(await page.locator('#ssid').inputValue(),'Radio shack Ω');assert(await page.locator('#installer button[slot="activate"]').isDisabled());
   await page.screenshot({path:path.join(docs,'usb-installer-ru.png'),fullPage:true});

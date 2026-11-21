@@ -64,16 +64,21 @@ def profile_build(profile,base,expected):
     for offset,name,data in entries:
         if offset+len(data)>flash:raise ValueError('part exceeds flash size')
         if offset<nvs[0][2]+nvs[0][3] and offset+len(data)>nvs[0][2]:raise ValueError('USB part would overwrite NVS')
-    return entries,{'version':meta['version'],**expected,'app_bytes':len(app),'app_limit_bytes':limit,'ota_slot_bytes':slot,'static_ram_bytes':static_ram((build/'ldgcontrol.elf').read_bytes()),'capabilities':{key:True for key in ['usb_provisioning','wifi','web','mqtt','mqtt_tls','home_assistant_discovery','tci','ota']}|{'display':board!='headless'}},chip
+    elf=(build/'ldgcontrol.elf').read_bytes()
+    return entries,{'version':meta['version'],**expected,'app_bytes':len(app),'app_limit_bytes':limit,'ota_slot_bytes':slot,'static_ram_bytes':static_ram(elf),'elf_sha256':sha(elf),'capabilities':{key:True for key in ['usb_provisioning','wifi','web','mqtt','mqtt_tls','home_assistant_discovery','tci','ota']}|{'display':board!='headless'}},chip
 
-def package(output,base,allow_missing=False,allow_dirty=False):
-    expected=identity()
+def prepare_site(output,allow_dirty):
     if not allow_dirty and subprocess.check_output(['git','status','--porcelain','--untracked-files=normal'],cwd=ROOT):raise ValueError('publish only from a clean checkout')
     if output.exists():raise ValueError('output directory already exists; choose a fresh path')
     output.mkdir(parents=True)
     for name in ['index.html','app.js','style.css','provisioning.js','serial-api.js','i18n.js','photos.json']:
         shutil.copy2(ROOT/'web-flasher'/name,output/name)
     shutil.copytree(ROOT/'web-flasher/images',output/'images')
+    shutil.copy2(ROOT/'LICENSE',output/'LICENSE')
+
+def package(output,base,allow_missing=False,allow_dirty=False):
+    expected=identity()
+    prepare_site(output,allow_dirty)
     catalog={'schema':1,'commit':expected['commit'],'profiles':[]}
     for source in PROFILES:
         profile=dict(source);profile['documentation']='https://github.com/ra3vld/LDGControl-IDF/blob/'+expected['commit']+'/'+profile.pop('docs')
@@ -100,9 +105,16 @@ def package(output,base,allow_missing=False,allow_dirty=False):
         for name in sorted(filter(None,files)):
             if name.startswith(('local-notes/','build-','web/node_modules/','web-flasher/node_modules/')) or name.endswith('.pem') and name!='release-public.pem':raise ValueError('private or generated source entry')
             archive.write(ROOT/name,'LDGControl-IDF/'+name)
-    shutil.copy2(ROOT/'LICENSE',output/'LICENSE')
     return catalog
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('output',type=Path);p.add_argument('--build-root',type=Path,default=ROOT);p.add_argument('--allow-missing',action='store_true');p.add_argument('--allow-dirty',action='store_true');args=p.parse_args()
-    result=package(args.output.resolve(),args.build_root.resolve(),args.allow_missing,args.allow_dirty)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('output',type=Path);p.add_argument('--build-root',type=Path,default=ROOT);p.add_argument('--allow-missing',action='store_true');p.add_argument('--allow-dirty',action='store_true');p.add_argument('--release-dir',type=Path);p.add_argument('--release-tag');args=p.parse_args()
+    if args.release_dir is not None:
+        from web_flasher_release import restore
+        if not args.release_tag or args.allow_missing:
+            p.error('--release-dir requires --release-tag and a complete catalog')
+        result=restore(args.release_tag,args.release_dir,args.output.resolve(),args.allow_dirty)
+    else:
+        if args.release_tag:
+            p.error('--release-tag requires --release-dir')
+        result=package(args.output.resolve(),args.build_root.resolve(),args.allow_missing,args.allow_dirty)
     print('Catalog:',len([p for p in result['profiles'] if p.get('build')]),'validated profiles')

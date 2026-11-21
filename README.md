@@ -2,9 +2,14 @@
 
 [English](#english) | [Русский](#russian)
 
+[![Firmware CI](https://github.com/ra3vld/LDGControl-IDF/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ra3vld/LDGControl-IDF/actions/workflows/ci.yml)
+[![Web flasher CD](https://github.com/ra3vld/LDGControl-IDF/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/ra3vld/LDGControl-IDF/actions/workflows/pages.yml)
+
 <a id="english"></a>
 
 ## English
+
+[![Flash device](docs/images/flash-device.svg)](https://ra3vld.github.io/LDGControl-IDF/)
 
 LDG AT-1000ProII / AT-600ProII controller built with ESP-IDF 5.5.5 and C++20.
 Use a local UART tuner or a separate network control panel. Displays use LVGL 9.6.0;
@@ -159,6 +164,8 @@ Additional attribution and component licenses: [NOTICE](NOTICE).
 <a id="russian"></a>
 
 ## Русский
+
+[![Прошить устройство](docs/images/flash-device.ru.svg)](https://ra3vld.github.io/LDGControl-IDF/)
 
 Контроллер LDG AT-1000ProII / AT-600ProII на ESP-IDF 5.5.5 и C++20.
 Поддерживает локальный UART-тюнер и отдельную сетевую панель управления.
