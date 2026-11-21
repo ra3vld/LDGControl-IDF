@@ -69,9 +69,10 @@ const char *commandName(uint8_t cmd) {
 }
 Snapshot snapshot() {
     Snapshot s;
-    uint32_t now = nowMs();
     if (xSemaphoreTake(controlMutex, pdMS_TO_TICKS(10)) != pdTRUE)
         return s;
+    // A telemetry update can advance its timestamp while the reader waits for the lock.
+    const uint32_t now = nowMs();
     if (applied.remoteEnabled) {
         s = remoteState;
         s.remote = true;
