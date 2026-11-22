@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // USB API 1 adapter; protocol derived from Remote-LDGControl. See NOTICE.
 #include "runtime.hpp"
+#ifdef ESP_PLATFORM
+#include "shack_server.hpp"
+#endif
 #include "json.hpp"
 #include "usb_provisioning.h"
 #include "driver/uart.h"
@@ -92,9 +95,29 @@ void serviceUsb() {
     if (restartAt && int32_t(nowMs()-restartAt.load())>=0) {fflush(stdout);esp_restart();}
     if (!consoleReady) return;
     uint8_t bytes[128];const int count=uart_read_bytes(UART_NUM_0,bytes,sizeof(bytes),0);
-    if (count>0) lease=nowMs()+5000;
+#ifdef ESP_PLATFORM
+    static shack::UsbFrames shackFrames;
+    const auto now = nowMs();
+    shackFrames.expire(now);
+#endif
     for (int i=0;i<count;++i) {
         const char c=char(bytes[i]);
+#ifdef ESP_PLATFORM
+        if (shackFrames.active() || (c == '@' && (!session || !session->used))) {
+            if (shackFrames.feed(c, now)) {
+                std::string body;
+                if (shack::usb(shackStation(), shackFrames.payload(), body)) {
+                    flockfile(stdout);
+                    fprintf(stdout, "%s%zu\n", shack::UsbPrefix, body.size());
+                    fwrite(body.data(), 1, body.size(), stdout);
+                    fflush(stdout);
+                    funlockfile(stdout);
+                }
+            }
+            continue;
+        }
+#endif
+        lease=nowMs()+5000;
         if (!session) {
             if (c!='{') continue;
             session=new(std::nothrow) Session;

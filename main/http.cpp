@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "shack_server.hpp"
 #include "json.hpp"
 #include "web_assets.hpp"
 #include "esp_http_server.h"
@@ -486,12 +487,29 @@ static void bulk(httpd_req_t *req) {
             return;
     httpd_resp_send_chunk(req, nullptr, 0);
 }
+static esp_err_t shackRead(httpd_req_t *req) {
+    char version[16]{}, id[shack::MaxId + 1]{};
+    std::string body;
+    int status = 0;
+    if (req->method != HTTP_GET ||
+        httpd_req_get_hdr_value_str(req, shack::VersionHeader, version, sizeof version) != ESP_OK ||
+        httpd_req_get_hdr_value_str(req, shack::IdHeader, id, sizeof id) != ESP_OK ||
+        !shack::http(shackStation(), req->uri, version, id, status, body))
+        return error(req, 400, "shack_request");
+    httpd_resp_set_status(req, status == 200 ? "200 OK" : status == 404 ? "404 Not Found" :
+                              status == 503 ? "503 Service Unavailable" : "400 Bad Request");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, body.data(), body.size());
+}
 static void worker(void *queue) {
     httpd_req_t *req;
     for (;;)
         if (xQueueReceive(static_cast<QueueHandle_t>(queue), &req, portMAX_DELAY)) {
             if (queue == bulkQueue)
                 bulk(req);
+            else if (!strncmp(req->uri, "/shack/", 7))
+                shackRead(req);
             else
                 api(req);
             httpd_req_async_handler_complete(req);
@@ -510,7 +528,7 @@ static esp_err_t dispatch(httpd_req_t *req) {
         httpd_resp_set_hdr(req, "WWW-Authenticate", "Basic realm=\"LDGControl\"");
         return error(req, 401, "authentication_required");
     }
-    bool isBulk = strncmp(req->uri, "/api/", 5) || !strcmp(req->uri, "/api/v2/update/upload") ||
+    bool isBulk = (strncmp(req->uri, "/api/", 5) && strncmp(req->uri, "/shack/", 7)) || !strcmp(req->uri, "/api/v2/update/upload") ||
                   !strcmp(req->uri, "/api/v2/update/download");
     if (activeHttp.fetch_add(1) >= maxActiveHttp) {
         --activeHttp;

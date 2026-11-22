@@ -128,3 +128,12 @@ discovery. Отключение discovery удаляет его retained-кон�
 HTTP `state` дополнен `antenna_names` и физическим `tuner_mode`; `mode`
 по-прежнему описывает эффективный режим, включая CONTROLLED. Разделы сети и MQTT
 принимают `clear_password: true` для явного удаления сохранённого пароля.
+
+## Shack Protocol v1.0
+
+[Shack Protocol](https://github.com/ra3vld/shack-libs/tree/main/protocol) предоставляет чтение состояния. ID узла — MAC Wi-Fi контроллера без разделителей. ID устройства — `tuner`.
+
+- По HTTP доступны `/shack/v1/hello`, `/shack/v1/devices` и `/shack/v1/devices/tuner/state`. Отправьте GET с заголовками `Shack-Version: 1.0`, уникальным `Shack-Request-Id` и учётными данными HTTP Basic контроллера.
+- По USB кадры `@SHACK` с длиной читаются из порта настройки. Используются те же пути. Чтение не включает режим обслуживания.
+- Сборка с `-D LDG_SHACK_UDP=ON` принимает бинарный Protobuf на UDP-порту 4536. Сокет привязан к адресу Wi-Fi станции и отвечает её подсети. Включайте этот профиль для доверенной локальной сети. Обычная сборка оставляет UDP-вход выключенным.
+- На своём MQTT-брокере используйте QoS 1 и отключённый retain в обоих направлениях. Выдайте клиенту и контроллеру доступ к нужным темам `shack/v1/{node_id}/read/{request_id}/request` и `…/reply`.

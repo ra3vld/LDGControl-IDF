@@ -130,3 +130,12 @@ See [USB setup](usb-setup.md) for the browser flow and recovery actions.
 HTTP `state` also includes `antenna_names` and the physical `tuner_mode`; `mode`
 continues to describe the effective mode, including CONTROLLED. Network and MQTT
 configuration accept `clear_password: true` to explicitly delete a stored secret.
+
+## Shack Protocol v1.0
+
+The read-only [Shack Protocol](https://github.com/ra3vld/shack-libs/tree/main/protocol) uses the controller's Wi-Fi MAC without separators as the node ID, and `tuner` as the device ID.
+
+- HTTP exposes `/shack/v1/hello`, `/shack/v1/devices`, and `/shack/v1/devices/tuner/state`. Use GET with `Shack-Version: 1.0`, a unique `Shack-Request-Id`, and the controller's HTTP Basic credentials.
+- USB accepts length-prefixed `@SHACK` requests on the provisioning serial connection. These reads use the same paths and leave the provisioning maintenance lease untouched.
+- A firmware build with `-D LDG_SHACK_UDP=ON` serves binary Protobuf on UDP port 4536, bound to the Wi-Fi station address and restricted to its subnet. Enable this build option on a trusted LAN. The default build keeps this plain UDP binding disabled.
+- On a user MQTT broker, send requests and receive replies with QoS 1 and retain disabled. Grant the client and controller access to the applicable `shack/v1/{node_id}/read/{request_id}/request` and `…/reply` topics.

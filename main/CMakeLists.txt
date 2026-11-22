@@ -1,10 +1,12 @@
+include("${CMAKE_CURRENT_LIST_DIR}/../vendor/shack-libs/protocol/firmware/sources.cmake")
+option(LDG_SHACK_UDP "Serve read-only Shack UDP on the Wi-Fi station subnet" OFF)
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
-idf_component_register(SRCS "app.cpp" "settings.cpp" "http.cpp" "network.cpp" "display.cpp" "display_fonts.cpp" "update.cpp" "sensors.cpp" "recovery.cpp" "provisioning.cpp" "wifi_storage.cpp"
-    INCLUDE_DIRS "." "${CMAKE_BINARY_DIR}/generated"
+idf_component_register(SRCS ${SHACK_WIRE_SOURCES} "shack_server.cpp" "app.cpp" "settings.cpp" "http.cpp" "network.cpp" "display.cpp" "display_fonts.cpp" "update.cpp" "sensors.cpp" "recovery.cpp" "provisioning.cpp" "wifi_storage.cpp"
+    INCLUDE_DIRS "." "${SHACK_FIRMWARE_DIR}" "${CMAKE_BINARY_DIR}/generated"
     EMBED_TXTFILES "../release-public.pem"
-    REQUIRES mdns ldg_core arduinojson esp_wifi esp_netif esp_event nvs_flash esp_timer esp_http_server esp_http_client mqtt esp_lcd driver esp_adc esp_https_ota app_update mbedtls esp_websocket_client lvgl)
+    REQUIRES lwip mdns ldg_core arduinojson esp_wifi esp_netif esp_event nvs_flash esp_timer esp_http_server esp_http_client mqtt esp_lcd driver esp_adc esp_https_ota app_update mbedtls esp_websocket_client lvgl)
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_20)
-target_compile_definitions(${COMPONENT_LIB} PRIVATE LDG_BOARD_${LDG_BOARD}=1 LDG_BOARD_NAME="${LDG_BOARD}" LDG_FIRMWARE_VERSION="${PROJECT_VER}" LDG_RELEASE_REPOSITORY="ra3vld/LDGControl-IDF")
+target_compile_definitions(${COMPONENT_LIB} PRIVATE LDG_SHACK_UDP=$<BOOL:${LDG_SHACK_UDP}> LDG_BOARD_${LDG_BOARD}=1 LDG_BOARD_NAME="${LDG_BOARD}" LDG_FIRMWARE_VERSION="${PROJECT_VER}" LDG_RELEASE_REPOSITORY="ra3vld/LDGControl-IDF")
 target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 execute_process(COMMAND "${PYTHON}" "${CMAKE_SOURCE_DIR}/tools/build_web.py" "${CMAKE_BINARY_DIR}/generated" COMMAND_ERROR_IS_FATAL ANY)
 file(GLOB web_sources "${CMAKE_SOURCE_DIR}/web/src/*")

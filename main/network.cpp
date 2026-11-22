@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "runtime.hpp"
+#include "shack_server.hpp"
 #include "json.hpp"
 #include "mqtt_protocol.h"
 #include "mqtt_readings.h"
@@ -127,6 +128,7 @@ struct MqttSession {
     };
     Reply replies[17]; // Last slot is reserved for a queue-full rejection.
     bool inputAccepted = false;
+    std::string shackTopic;
     portMUX_TYPE mutex = portMUX_INITIALIZER_UNLOCKED;
 };
 static MqttSession *mqtt = nullptr;
@@ -184,6 +186,7 @@ static void mqttEvent(void *argument, esp_event_base_t, int32_t id, void *eventD
     if (e->current_data_offset == 0) {
         s.inputUsed = 0;
         s.inputAccepted = false;
+        s.shackTopic.clear();
         if (e->topic_len == 20 && !memcmp(e->topic, "homeassistant/status", 20)) {
             if (e->data_len == 6 && !memcmp(e->data, "online", 6))
                 s.discovery = true;
@@ -191,6 +194,14 @@ static void mqttEvent(void *argument, esp_event_base_t, int32_t id, void *eventD
         }
         s.inputAccepted = !e->retain && e->topic_len == int(strlen(s.commandTopic)) &&
                           !memcmp(e->topic, s.commandTopic, e->topic_len);
+        if (!s.inputAccepted && !e->retain && e->topic_len > 0 && e->topic_len < 128 &&
+            !ldg::managedMqttBroker(s.config.device.mqttBroker)) {
+            std::string_view topic(e->topic, e->topic_len);
+            if (shack::mqttRequestTopic(shackNode(), topic)) {
+                s.shackTopic.assign(topic);
+                s.inputAccepted = true;
+            }
+        }
     }
     if (!s.inputAccepted || e->current_data_offset != int(s.inputUsed) || e->data_len < 0 ||
         s.inputUsed + e->data_len > 1024)
@@ -201,6 +212,12 @@ static void mqttEvent(void *argument, esp_event_base_t, int32_t id, void *eventD
         return;
     s.input[s.inputUsed] = 0;
     s.inputAccepted = false;
+    if (!s.shackTopic.empty()) {
+        std::string replyTopic, body;
+        if (shack::mqtt(shackStation(), s.shackTopic, {s.input, s.inputUsed}, replyTopic, body))
+            esp_mqtt_client_enqueue(s.client, replyTopic.c_str(), body.data(), body.size(), 1, 0, false);
+        return;
+    }
     MqttSession::Reply reply;
     BoundedJson in(4096);
     if (deserializeJson(in.doc, s.input, s.inputUsed, DeserializationOption::NestingLimit(4)))
@@ -350,6 +367,8 @@ static void serviceMqtt() {
         return;
     if (s->discovery.exchange(false)) {
         esp_mqtt_client_subscribe(s->client, s->commandTopic, 0);
+        if (!ldg::managedMqttBroker(s->config.device.mqttBroker))
+            esp_mqtt_client_subscribe(s->client, shack::mqttSubscription(shackNode()).c_str(), 1);
         esp_mqtt_client_subscribe(s->client, "homeassistant/status", 0);
         esp_mqtt_client_publish(s->client, s->statusTopic, "online", 0, 0, true);
         for (unsigned i = 0; i < ldg::MQTT_ENTITY_COUNT; ++i) {
@@ -669,6 +688,8 @@ static void worker(void *) {
         else if (updating) updateHealth([](auto& h){h.state="paused";});
         serviceScan();
         captiveDnsService();
+        if (LDG_SHACK_UDP)
+            serviceShackUdp(station, networkUp && !updating);
         serviceTci(c);
         updateService();
         serviceRemote(c);
