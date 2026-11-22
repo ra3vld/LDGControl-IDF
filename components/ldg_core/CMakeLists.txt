@@ -1,2 +1,1 @@
-idf_component_register(SRCS "src/protocol.cpp" "src/controller.cpp" INCLUDE_DIRS "include" REQUIRES arduinojson)
-target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_20)
+include("${CMAKE_CURRENT_LIST_DIR}/../../vendor/shack-libs/ldg_core/CMakeLists.txt")

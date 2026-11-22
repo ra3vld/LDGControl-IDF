@@ -15,7 +15,7 @@ def git(*args):
     return subprocess.check_output(['git','-c','safe.directory='+str(ROOT),*args],cwd=ROOT,text=True,stderr=subprocess.PIPE).strip()
 def inputs():
     paths=[]
-    for directory in ['main','components','boards','web/src']:
+    for directory in ['main','components','vendor/shack-libs','boards','web/src']:
         paths += [p for p in (ROOT/directory).rglob('*') if p.is_file() and '__pycache__' not in p.parts]
     paths += [ROOT/p for p in ['CMakeLists.txt','dependencies.esp32.lock','dependencies.esp32s3.lock',
         'web/package.json','web/package-lock.json','tools/build.py','tools/build_web.py',

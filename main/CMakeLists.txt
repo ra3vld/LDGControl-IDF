@@ -14,6 +14,7 @@ execute_process(COMMAND "${PYTHON}" "${CMAKE_SOURCE_DIR}/tools/firmware_identity
 
 file(GLOB_RECURSE identity_inputs CONFIGURE_DEPENDS
     "${CMAKE_SOURCE_DIR}/main/*" "${CMAKE_SOURCE_DIR}/components/*"
+    "${CMAKE_SOURCE_DIR}/vendor/shack-libs/*"
     "${CMAKE_SOURCE_DIR}/boards/*" "${CMAKE_SOURCE_DIR}/web/src/*")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${identity_inputs}
     "${CMAKE_SOURCE_DIR}/tools/firmware_identity.py" "${CMAKE_SOURCE_DIR}/release-public.pem"
