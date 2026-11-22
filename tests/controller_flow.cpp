@@ -1,4 +1,5 @@
 #include "controller.hpp"
+#include "ldg_tuner_backend.hpp"
 #include <unity.h>
 #include <vector>
 #include <algorithm>
@@ -211,8 +212,56 @@ void bypass_preserves_controlled_and_manual_choice_can_exit() {
     r.run(1200);
     TEST_ASSERT_FALSE(r.c.state(r.now).tuningManaged);
 }
+void shared_backend_replays_bypass_without_reversing_it() {
+    Rig r;
+    TunerBackend ldg(r.c);
+    tuner::ITunerBackend &backend = ldg;
+    using tuner::Action;
+    using tuner::Status;
+
+    const auto caps = backend.capabilities();
+    TEST_ASSERT_TRUE(caps.tune && caps.memoryTune && caps.fullTune && caps.toggleBypass);
+    TEST_ASSERT_EQUAL(2, caps.antennaPorts);
+    TEST_ASSERT_FALSE(backend.snapshot(0).meter.has_value());
+    r.run(2000);
+    const auto initial = backend.snapshot(r.now);
+    TEST_ASSERT_TRUE(initial.connected && initial.meter.has_value());
+    TEST_ASSERT_TRUE(initial.antenna.has_value());
+    TEST_ASSERT_EQUAL(0, *initial.antenna);
+
+    tuner::Request command;
+    command.id[0] = 42;
+    command.target = r.c.target();
+    command.expiresAtMs = r.now + 2000;
+    command.action = Action::ToggleBypass;
+    TEST_ASSERT_FALSE(backend.operation(command.id).has_value());
+    TEST_ASSERT_EQUAL(int(Status::Accepted), int(backend.submit(command, r.now).status));
+    TEST_ASSERT_EQUAL(int(Status::Accepted), int(*backend.operation(command.id)));
+    r.run(1200);
+    TEST_ASSERT_EQUAL(int(Status::Success), int(*backend.operation(command.id)));
+    TEST_ASSERT_EQUAL(int(tuner::Mode::Bypass), int(backend.snapshot(r.now).mode));
+
+    TEST_ASSERT_EQUAL(int(Status::Accepted), int(backend.submit(command, r.now).status));
+    auto conflict = command;
+    conflict.action = Action::SetAuto;
+    TEST_ASSERT_EQUAL(int(Status::Conflict), int(backend.submit(conflict, r.now).status));
+    r.run(1000);
+    TEST_ASSERT_EQUAL(int(tuner::Mode::Bypass), int(backend.snapshot(r.now).mode));
+    TEST_ASSERT_EQUAL(1, std::count(r.sent.begin(), r.sent.end(), TUNER_CMD_BYPASS));
+
+    command.id[0]++;
+    command.expiresAtMs = r.now + 2000;
+    TEST_ASSERT_EQUAL(int(Status::Accepted), int(backend.submit(command, r.now).status));
+    TEST_ASSERT_TRUE(backend.cancel(command.id, r.now));
+    TEST_ASSERT_EQUAL(int(Status::Cancelled), int(*backend.operation(command.id)));
+    command.id[0]++;
+    command.action = Action::SelectAntenna;
+    command.antenna = 2;
+    TEST_ASSERT_EQUAL(int(Status::Invalid), int(backend.submit(command, r.now).status));
+}
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(shared_backend_replays_bypass_without_reversing_it);
     RUN_TEST(bypass_preserves_controlled_and_manual_choice_can_exit);
     RUN_TEST(route_failure_is_partial_and_does_not_switch_back);
     RUN_TEST(startup_restores_original_port);

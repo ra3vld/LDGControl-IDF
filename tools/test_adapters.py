@@ -13,6 +13,7 @@ for board in ['sunton','headless','guition']:
 for adapter in ['usb','wifi_storage']:
     cmd=['g++','-std=c++20','-Wall','-Wextra','-Werror','-Wno-missing-field-initializers','-DLDG_BOARD_sunton=1','-DLDG_BOARD_NAME="sunton"','-DLDG_FIRMWARE_VERSION="0.1.0"',
      '-Itests/adapters/stubs','-Imain','-Ivendor/shack-libs/ldg_core/include','-isystem','components/arduinojson/include','tests/adapters/'+adapter+'.cpp',
+     '-Ivendor/shack-libs/tuner_core/include',
      *map(str,(root/'vendor/shack-libs/ldg_core/src').glob('*.cpp')),'-o',str(out/adapter)]
     if os.environ.get('SANITIZE')=='1':cmd[1:1]=['-g','-fsanitize=address,undefined','-fno-omit-frame-pointer']
     subprocess.run(cmd,cwd=root,check=True);subprocess.run([str(out/adapter)],check=True)

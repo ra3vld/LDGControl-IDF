@@ -4,7 +4,7 @@ from pathlib import Path
 import subprocess, os
 root=Path(__file__).resolve().parents[1]
 out=root/'build-host';out.mkdir(exist_ok=True)
-includes=['-I'+str(root/p) for p in ['vendor/shack-libs/ldg_core/include','tests','tests/unity']]
+includes=['-I'+str(root/p) for p in ['vendor/shack-libs/ldg_core/include','vendor/shack-libs/tuner_core/include','tests','tests/unity']]
 includes+=['-isystem',str(root/'components/arduinojson/include')]
 subprocess.run(['cc','-DUNITY_INCLUDE_DOUBLE',*includes,'-c',str(root/'tests/unity/unity.c'),'-o',str(out/'unity.o')],check=True)
 for test in sorted((root/'tests').glob('*.cpp')):
